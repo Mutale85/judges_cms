@@ -1,0 +1,29 @@
+# MySQL 8.x server settings for Judicial Chambers.
+# Place in /etc/mysql/mysql.conf.d/ (path varies by distribution).
+
+[mysqld]
+# --- Data in transit ---------------------------------------------------------
+# Refuse any client connection that is not encrypted.
+require_secure_transport = ON
+tls_version              = TLSv1.2,TLSv1.3
+ssl_ca                   = /etc/mysql/tls/ca.pem
+ssl_cert                 = /etc/mysql/tls/server-cert.pem
+ssl_key                  = /etc/mysql/tls/server-key.pem
+
+# --- Data at rest (defence in depth) -------------------------------------------
+# The application already encrypts every sensitive column (AES-256-GCM) before
+# it reaches MySQL. InnoDB encryption additionally protects indexes, metadata,
+# redo/undo logs and binary logs on disk. Requires a keyring component
+# (component_keyring_file, or better, a KMIP/HSM-backed keyring) — see
+# https://dev.mysql.com/doc/refman/8.0/en/keyring.html
+default_table_encryption = ON
+innodb_redo_log_encrypt  = ON
+innodb_undo_log_encrypt  = ON
+binlog_encryption        = ON
+
+# --- Hygiene ---------------------------------------------------------------------
+local_infile             = OFF
+bind-address             = 10.0.0.20      # private interface only
+character-set-server     = utf8mb4
+collation-server         = utf8mb4_unicode_ci
+default_time_zone        = '+00:00'

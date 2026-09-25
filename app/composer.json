@@ -1,0 +1,22 @@
+{
+    "name": "judicial-chambers/app",
+    "description": "Judge-centred case management, hearings and courtroom transcription platform",
+    "type": "project",
+    "license": "proprietary",
+    "require": {
+        "php": ">=8.2",
+        "ext-openssl": "*",
+        "ext-pdo": "*",
+        "ext-mbstring": "*",
+        "ext-fileinfo": "*",
+        "ext-curl": "*",
+        "ext-json": "*"
+    },
+    "autoload": {
+        "psr-4": { "JC\\": "src/" },
+        "files": ["src/helpers.php"]
+    },
+    "scripts": {
+        "test": "php tests/run.php"
+    }
+}

@@ -1,0 +1,74 @@
+:root {
+    --jc-navy: #14213d;
+    --jc-navy-2: #1d2f57;
+    --jc-gold: #c9a227;
+    --jc-bg: #f4f5f8;
+    --jc-border: #e3e6ee;
+}
+
+body { background: var(--jc-bg); min-height: 100vh; display: flex; flex-direction: column; }
+.jc-main { flex: 1; max-width: 1600px; }
+.jc-navbar { background: linear-gradient(90deg, var(--jc-navy), var(--jc-navy-2)); border-bottom: 3px solid var(--jc-gold); }
+.jc-navbar .navbar-brand { font-weight: 600; letter-spacing: .02em; }
+.jc-navbar .navbar-brand .bi { color: var(--jc-gold); }
+.jc-navbar .nav-link.active { color: #fff; border-bottom: 2px solid var(--jc-gold); }
+.jc-footer { border-top: 1px solid var(--jc-border); background: #fff; }
+.jc-eyebrow { letter-spacing: .08em; }
+
+.jc-card { border: 1px solid var(--jc-border); box-shadow: 0 1px 2px rgba(20, 33, 61, .04); }
+.jc-card > .card-header { background: #fff; font-weight: 600; }
+.jc-stat { border: 0; border-left: 4px solid var(--jc-gold); }
+.jc-stat-value { font-size: 2rem; font-weight: 700; color: var(--jc-navy); line-height: 1; }
+.jc-stat-label { color: #6c757d; font-size: .85rem; margin-top: .25rem; }
+.jc-time { font-weight: 700; font-variant-numeric: tabular-nums; color: var(--jc-navy); min-width: 3.5rem; }
+.jc-hash { font-family: var(--bs-font-monospace); font-size: .75rem; word-break: break-all; }
+.jc-audit-details { max-width: 28rem; word-break: break-word; font-family: var(--bs-font-monospace); font-size: .75rem; }
+
+/* Guest pages */
+.jc-guest { background: radial-gradient(circle at top, #23355f, var(--jc-navy) 60%); }
+.jc-guest h1, .jc-guest > main > .row > div > .text-center p, .jc-guest .text-muted.small.mt-4 { color: #f1f3f8 !important; }
+.jc-guest-logo { font-size: 3rem; color: var(--jc-gold); }
+.jc-otp { letter-spacing: .5em; font-variant-numeric: tabular-nums; }
+.jc-qr svg { width: 200px; height: 200px; }
+.jc-secret { font-size: 1rem; }
+
+/* Calendar */
+@media (min-width: 1200px) {
+    .jc-week { display: grid; grid-template-columns: repeat(7, 1fr); }
+    .jc-week > .col { width: auto; max-width: none; }
+}
+.jc-event { text-decoration: none; color: inherit; border-left: 3px solid var(--bs-primary); padding: .25rem .5rem; background: #f7f9ff; border-radius: .25rem; }
+.jc-event:hover { background: #eaf0ff; }
+.jc-event-proposed { border-left-style: dashed; border-left-color: #adb5bd; background: #fafafa; }
+.jc-event-in_progress { border-left-color: var(--bs-danger); }
+.jc-event-completed { border-left-color: var(--bs-success); }
+.jc-event-adjourned, .jc-event-cancelled { border-left-color: #adb5bd; opacity: .7; }
+
+/* Recorder */
+.jc-rec-indicator { font-weight: 600; color: #6c757d; }
+.jc-rec-dot { display: inline-block; width: .75rem; height: .75rem; border-radius: 50%; background: #adb5bd; vertical-align: middle; }
+.jc-recording .jc-rec-indicator { color: var(--bs-danger); }
+.jc-recording .jc-rec-dot { background: var(--bs-danger); animation: jc-pulse 1.2s infinite; }
+@keyframes jc-pulse { 50% { opacity: .25; } }
+.jc-rec-clock { font-size: 2rem; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--jc-navy); }
+.jc-level { width: 160px; height: 6px; background: #e9ecef; border-radius: 3px; overflow: hidden; display: inline-block; }
+.jc-level-bar { height: 100%; width: 0; background: var(--bs-success); transition: width .1s linear; }
+.jc-live { max-height: 60vh; overflow-y: auto; }
+.jc-live-seg { padding: .35rem 0; border-bottom: 1px dashed var(--jc-border); }
+.jc-live-seg .jc-live-meta { font-size: .75rem; color: #6c757d; }
+.jc-speaker.active { background: var(--jc-navy); color: #fff; border-color: var(--jc-navy); }
+
+/* Transcript review */
+.jc-sticky-player { position: sticky; top: .5rem; z-index: 5; }
+.jc-segment.jc-playing { background: #fff8e1; }
+.jc-segment.jc-hidden { display: none; }
+.jc-ts { font-variant-numeric: tabular-nums; text-decoration: none; min-width: 4.5rem; text-align: left; }
+.jc-segment-text mark { padding: 0; }
+
+/* Print */
+.jc-print { background: #fff; }
+.jc-transcript-table td { vertical-align: top; }
+.jc-watermark { position: fixed; top: 45%; left: 0; right: 0; text-align: center; font-size: 3rem; font-weight: 700; color: rgba(220, 53, 69, .12); transform: rotate(-20deg); pointer-events: none; z-index: 0; }
+@media print {
+    .jc-print .container { max-width: 100%; }
+}

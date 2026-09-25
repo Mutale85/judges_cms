@@ -1,0 +1,15 @@
+# Secrets and local configuration
+.env
+app/.env
+transcription/.env
+*.pem
+*.key
+
+# Dependencies
+app/vendor/
+transcription/node_modules/
+
+# Local data (encrypted files, SQLite dev databases)
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm

@@ -1,0 +1,36 @@
+[Unit]
+Description=Judicial Chambers transcription service (WSS capture + speech-to-text)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=jc-transcribe
+Group=jc-storage
+WorkingDirectory=/opt/judicial-chambers/transcription
+EnvironmentFile=/etc/judicial-chambers/transcription.env
+# Trust the institution's private CA when calling the PHP application over HTTPS.
+Environment=NODE_EXTRA_CA_CERTS=/etc/judicial-chambers/tls/internal-ca.pem
+ExecStart=/usr/bin/node src/server.js
+Restart=always
+RestartSec=2
+# Recordings in progress resume after a restart (see src/session.js).
+KillSignal=SIGTERM
+TimeoutStopSec=20
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/judicial-chambers/storage/recordings /dev/shm
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=false
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

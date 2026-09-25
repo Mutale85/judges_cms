@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  php:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: pdo_sqlite, openssl, mbstring, fileinfo, curl
+      - name: Lint
+        run: find app -name '*.php' -not -path 'app/public/assets/*' -print0 | xargs -0 -n1 php -l > /dev/null
+      - name: Tests
+        run: php app/tests/run.php
+
+  node:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: openssl, mbstring
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci || npm install
+        working-directory: transcription
+      - run: npm test
+        working-directory: transcription

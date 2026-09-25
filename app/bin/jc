@@ -1,0 +1,224 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+/*
+ * Judicial Chambers administration CLI.
+ *
+ *   php bin/jc keys:generate                 Print a new random master key (for KEYRING)
+ *   php bin/jc secret:generate               Print a new SERVICE_HMAC_SECRET
+ *   php bin/jc migrate                       Apply database migrations
+ *   php bin/jc judge:create                  Create a judge and their chambers (interactive)
+ *   php bin/jc admin:create                  Create an institution administrator (interactive)
+ *   php bin/jc keys:rotate                   Re-encrypt all data under ACTIVE_KEY_ID
+ *   php bin/jc audit:verify                  Verify the audit log hash chain
+ *   php bin/jc integrity:verify              Verify every stored document and recording
+ *   php bin/jc demo:seed                     Load demonstration data (development only)
+ */
+
+require dirname(__DIR__) . '/bootstrap.php';
+
+use JC\Core\App;
+use JC\Core\Config;
+use JC\Core\Migrator;
+use JC\Security\FieldCipher;
+use JC\Security\KeyRing;
+use JC\Service\CaseService;
+use JC\Service\DocumentService;
+use JC\Service\HearingService;
+use JC\Service\RecordingService;
+use JC\Service\UserService;
+
+$command = $argv[1] ?? 'help';
+$app = new App();
+
+function out(string $line = ''): void
+{
+    fwrite(STDOUT, $line . PHP_EOL);
+}
+
+function ask(string $question, ?string $default = null): string
+{
+    fwrite(STDOUT, $question . ($default !== null ? " [{$default}]" : '') . ': ');
+    $answer = trim((string) fgets(STDIN));
+    return $answer === '' ? (string) $default : $answer;
+}
+
+try {
+    switch ($command) {
+        case 'keys:generate':
+            out('v' . date('Ymd') . ':' . KeyRing::generateKey());
+            break;
+
+        case 'secret:generate':
+            out(rtrim(strtr(base64_encode(random_bytes(48)), '+/', '-_'), '='));
+            break;
+
+        case 'migrate':
+            $applied = (new Migrator($app->db(), JC_ROOT . '/database/migrations'))->migrate();
+            out($applied ? 'Applied: ' . implode(', ', $applied) : 'Nothing to migrate.');
+            break;
+
+        case 'admin:create':
+        case 'judge:create':
+            $users = $app->service(UserService::class);
+            $email = ask('E-mail');
+            $name = ask('Full name (e.g. Hon. Mrs Justice A. Banda)');
+            $temp = UserService::temporaryPassword();
+            $userId = $users->create($email, $name, $temp, $command === 'admin:create');
+            if ($command === 'judge:create') {
+                $chambersName = ask('Chambers name', "Chambers of {$name}");
+                $court = ask('Court', 'High Court for Zambia');
+                $division = ask('Division (optional)', '');
+                $location = ask('Location (optional)', 'Lusaka');
+                $chambersId = $users->createChambers($chambersName, $court, $division ?: null, $location ?: null, $userId);
+                $app->audit()->record('chambers.created', null, $chambersId, 'chambers', $chambersId, ['judge_user_id' => $userId]);
+            }
+            $app->audit()->record('user.created', null, null, 'user', $userId, ['admin' => $command === 'admin:create']);
+            out('');
+            out("Created user #{$userId}. One-time password: {$temp}");
+            out('Deliver it through a secure channel. Password change and two-factor enrolment are required at first sign-in.');
+            break;
+
+        case 'keys:rotate':
+            rotateKeys($app);
+            break;
+
+        case 'audit:verify':
+            $result = $app->audit()->verify();
+            out($result['ok'] ? "OK: {$result['count']} audit entries verified." : "FAILED at entry #{$result['failed_id']}: {$result['error']}");
+            exit($result['ok'] ? 0 : 1);
+
+        case 'integrity:verify':
+            $failures = 0;
+            $docs = $app->service(DocumentService::class);
+            foreach ($app->db()->fetchAll('SELECT * FROM documents') as $doc) {
+                if (!$docs->verify($doc)) {
+                    $failures++;
+                    out("Document #{$doc['id']} FAILED integrity check.");
+                }
+            }
+            $recs = $app->service(RecordingService::class);
+            foreach ($app->db()->fetchAll('SELECT * FROM recordings WHERE sha256 IS NOT NULL') as $rec) {
+                if (!$recs->verifyIntegrity($rec)) {
+                    $failures++;
+                    out("Recording #{$rec['id']} FAILED integrity check.");
+                }
+                if ($rec['transcript_status'] === 'certified' && !$recs->verifyCertification($rec)) {
+                    $failures++;
+                    out("Recording #{$rec['id']}: certified transcript no longer matches its certificate.");
+                }
+            }
+            $app->audit()->record('integrity.verified', null, null, null, null, ['failures' => $failures]);
+            out($failures === 0 ? 'All stored documents and recordings verified.' : "{$failures} integrity failure(s).");
+            exit($failures === 0 ? 0 : 1);
+
+        case 'demo:seed':
+            if (Config::isProduction()) {
+                throw new RuntimeException('demo:seed is disabled when APP_ENV=production.');
+            }
+            seedDemo($app);
+            break;
+
+        default:
+            $source = (string) file_get_contents(__FILE__);
+            $start = strpos($source, '/*') + 2;
+            out(trim(substr($source, $start, strpos($source, '*/') - $start)));
+    }
+} catch (Throwable $e) {
+    fwrite(STDERR, 'Error: ' . $e->getMessage() . PHP_EOL);
+    exit(1);
+}
+
+/**
+ * Re-encrypts every encrypted column (except the append-only audit log, whose
+ * entries stay readable with the retained older key) and re-wraps every
+ * document and recording data key under the active master key. File contents
+ * do not need re-encryption because they are protected by per-file data keys.
+ */
+function rotateKeys(App $app): void
+{
+    $db = $app->db();
+    $crypto = $app->crypto();
+    $active = $crypto->ring()->activeId();
+    $count = 0;
+    foreach (FieldCipher::ENCRYPTED as $table => $columns) {
+        if ($table === 'audit_log') {
+            continue;
+        }
+        $rows = $db->fetchAll("SELECT * FROM {$table}");
+        foreach ($rows as $row) {
+            $update = [];
+            foreach ($columns as $column => $purpose) {
+                if ($row[$column] !== null && $crypto->needsRotation($row[$column])) {
+                    $plain = $crypto->decrypt($row[$column], "{$table}.{$column}", $purpose);
+                    $update[$column] = $crypto->encrypt($plain, "{$table}.{$column}", $purpose);
+                }
+            }
+            if ($update) {
+                $db->update($table, $update, ['id' => $row['id']]);
+                $count++;
+            }
+        }
+    }
+    foreach ($db->fetchAll('SELECT * FROM documents') as $doc) {
+        if ($crypto->needsRotation($doc['wrapped_key'])) {
+            $ctx = 'documents:' . $doc['storage_key'];
+            $dek = $crypto->unwrapKey($doc['wrapped_key'], $ctx, $doc['key_purpose']);
+            $db->update('documents', ['wrapped_key' => $crypto->wrapKey($dek, $ctx, $doc['key_purpose'])], ['id' => $doc['id']]);
+            $count++;
+        }
+    }
+    out("Re-encrypted {$count} rows under key '{$active}'.");
+    out('Recording data keys are immutable once finalised and remain readable with their original master key; keep that key in KEYRING.');
+    $app->audit()->record('keys.rotated', null, null, null, null, ['active_key' => $active, 'rows' => $count]);
+}
+
+function seedDemo(App $app): void
+{
+    $users = $app->service(UserService::class);
+    $password = 'Chambers-Demo-2026!';
+    $judgeId = $users->create('judge@demo.local', 'Hon. Mrs Justice M. Mwansa', $password, false, null, false);
+    $chambersId = $users->createChambers('Chambers of Justice Mwansa', 'High Court for Zambia', 'Commercial Division', 'Lusaka', $judgeId);
+    $marshalId = $users->create('marshal@demo.local', 'Chanda Phiri', $password, false, null, false);
+    $users->addMember($chambersId, $marshalId, 'marshal', $judgeId);
+    $reporterId = $users->create('reporter@demo.local', 'Lubinda Mutale', $password, false, null, false);
+    $users->addMember($chambersId, $reporterId, 'court_reporter', $judgeId);
+
+    // Build an authenticated context for the judge so services apply the same rules as the web UI.
+    $app->session()->set('user_id', $judgeId);
+    $app->session()->set('chambers_id', $chambersId);
+
+    $cases = $app->service(CaseService::class);
+    $caseId = $cases->create($chambersId, $marshalId, [
+        'case_number' => '2026/HPC/0142',
+        'title' => 'Kafue Agro Supplies Ltd v Zambezi Logistics Ltd',
+        'case_type' => 'commercial',
+        'summary' => 'Claim for breach of a haulage contract and damages for spoiled consignment (fictional example).',
+        'filed_on' => '2026-02-11',
+    ]);
+    $cases->setStatus($caseId, 'hearing');
+    $cases->addParty($caseId, ['party_role' => 'plaintiff', 'name' => 'Kafue Agro Supplies Ltd']);
+    $cases->addParty($caseId, ['party_role' => 'defendant', 'name' => 'Zambezi Logistics Ltd']);
+    $cases->addParty($caseId, ['party_role' => 'advocate', 'name' => 'Mr B. Tembo', 'representing' => 'Plaintiff — Tembo & Associates']);
+    $cases->assign($caseId, $reporterId, $judgeId);
+
+    $case = $cases->find($caseId);
+    $local = (new DateTimeImmutable('today 09:30', app_timezone()))->format('Y-m-d\TH:i');
+    $hearingId = $app->service(HearingService::class)->propose($case, ['scheduled_at' => $local, 'hearing_type' => 'trial', 'courtroom' => 'Court 4', 'duration_minutes' => 120], $judgeId, true);
+
+    $case2 = $cases->create($chambersId, $judgeId, [
+        'case_number' => '2026/HP/0311',
+        'title' => 'In the matter of an application for judicial review (fictional)',
+        'case_type' => 'civil',
+        'sealed' => true,
+    ]);
+
+    $app->audit()->record('demo.seeded', null, $chambersId, null, null, ['cases' => [$caseId, $case2], 'hearing' => $hearingId]);
+    out('Demo data created. Sign in with any of these (password: ' . $password . '):');
+    out('  judge@demo.local     (judge)');
+    out('  marshal@demo.local   (marshal)');
+    out('  reporter@demo.local  (court reporter)');
+    out('Each account will be asked to enrol two-factor authentication at first sign-in.');
+}
