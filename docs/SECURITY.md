@@ -73,7 +73,8 @@ chunk i  = AES-256-GCM(DEK, nonce = noncePrefix | u32BE(i), aad = header | final
 | Transcription ⇄ PHP | HTTPS with CA verification (`NODE_EXTRA_CA_CERTS`). Every request is HMAC-signed over method, path, timestamp, nonce and body hash, with a ±5 minute window and single-use nonces. Optional mTLS for `/jobs`. |
 | PHP ⇄ MySQL | TLS with server-certificate verification (`DB_SSL_CA`). The app refuses to connect without TLS in production, and checks that the session really negotiated a cipher. The server has `require_secure_transport=ON`, and the DB user is `REQUIRE SSL`. |
 | nginx ⇄ Node | Re-encrypted (`proxy_pass https://`, `proxy_ssl_verify on`). |
-| Transcription ⇄ speech engine | Local process (whisper.cpp), or `https://` required in production for a self-hosted HTTP engine. |
+| Transcription ⇄ AssemblyAI | `https://` REST and `wss://` streaming only (enforced in production), authenticated with the API key. Only audio is sent: no case numbers, names or other metadata. |
+| Transcription ⇄ local engine | Local process (whisper.cpp), or `https://` required in production for a self-hosted HTTP engine. |
 
 Only TLS 1.2 and 1.3 with forward-secret AEAD suites are enabled (`deploy/nginx.conf`, `transcription/src/server.js`).
 
@@ -103,13 +104,34 @@ Only TLS 1.2 and 1.3 with forward-secret AEAD suites are enabled (`deploy/nginx.
   * Certification stores a keyed MAC over the recording hash and every segment, and the database then freezes the segments.
   * Any later change is reported on the review page and by `bin/jc integrity:verify`.
 
-## 5. AI safeguards
+## 5. Speech-to-text and AI safeguards
 
-* Speech recognition runs on court-controlled infrastructure (local whisper.cpp or a self-hosted endpoint). No case data goes to third-party services, and none is used for model training.
-* The UI never presents machine output as the record. Reviewers can replay the audio for any passage, and low-confidence passages are flagged.
-* Language support is honest:
-  * English is the baseline.
-  * Bemba, Nyanja, Tonga and Lozi are labelled *experimental* until accuracy has been measured on real proceedings.
+### 5.1 AssemblyAI (external processor)
+
+When `ASR_PROVIDER=assemblyai`, court audio **leaves the institution's infrastructure** and is processed by AssemblyAI. That is a transfer of personal data (possibly special-category data in criminal and family matters), and may be a cross-border transfer. The following controls apply:
+
+* **Explicit approval gate.** In production the service refuses to start with AssemblyAI unless `EXTERNAL_ASR_APPROVED=true`. Set it only after:
+  * the Data Protection Act 2021 assessment (including the conditions for transfers outside Zambia);
+  * a data processing agreement with AssemblyAI covering retention, sub-processors, region and model training;
+  * Judiciary sign-off.
+* **Encrypted in transit.** TLS only: `https://` and `wss://` are enforced in production.
+* **Minimum data.** Only the audio is sent. Nothing identifying the case is included.
+* **Deletion.** Every batch transcript is deleted from AssemblyAI (`DELETE /v2/transcript/{id}`) as soon as the result has been retrieved, including when transcription fails. Failed deletions are logged as errors. Confirm contractually what happens to uploaded files and streaming audio, and for how long.
+* **Region.** If your contract provides regional (e.g. EU) endpoints, set `ASSEMBLYAI_BASE_URL` and `ASSEMBLYAI_STREAMING_URL`.
+* **Sealed cases.** Consider routing sealed, criminal and family matters to a local engine, or not transcribing them automatically. This is a policy decision for the Judiciary.
+* **Users are told.** The recording console and review page name the processor (`TRANSCRIPTION_PROCESSOR`).
+* **Unsupported languages are never sent.** AssemblyAI has no Bemba, Nyanja, Tonga or Lozi models, so audio in those languages is never sent to it. Such hearings are recorded and sealed as usual. They can be routed to another engine with `ASR_LANGUAGE_ROUTES`, or transcribed by hand.
+
+### 5.2 Local engines
+
+`whisper-cpp` (same host) and `http` (self-hosted inside the court network) keep audio on court-controlled infrastructure. They are the preferred option wherever accuracy is sufficient, for example for local-language models fine-tuned on Zambian speech.
+
+### 5.3 The record
+
+* The UI never presents machine output as the record.
+* Reviewers can replay the audio for any passage, and low-confidence passages are flagged.
+* Machine text is kept alongside every human correction. Only the judge certifies a transcript.
+* Language support is honest: a language is labelled *experimental* until its accuracy has been measured on real proceedings.
 
 ## 6. Before production — checklist
 
@@ -122,3 +144,4 @@ Only TLS 1.2 and 1.3 with forward-secret AEAD suites are enabled (`deploy/nginx.
 - [ ] Retention and deletion policy agreed with the Judiciary (recordings are deliberately undeletable from the application).
 - [ ] Independent penetration test and code review.
 - [ ] Measured transcription accuracy per language before any language is offered as supported.
+- [ ] If AssemblyAI is used: transfer approved, DPA signed, region and retention confirmed, `EXTERNAL_ASR_APPROVED=true`, and a policy on sealed, criminal and family matters.

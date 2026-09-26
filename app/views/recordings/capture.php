@@ -67,7 +67,7 @@ $chambers = $auth->chambers();
                 </div>
             </div>
             <div class="alert alert-secondary small mt-3 mb-0">
-                <i class="bi bi-shield-lock"></i> Audio travels over an encrypted WebSocket (TLS) and is encrypted (AES-256-GCM) by the transcription service as it arrives. If the network drops, audio is kept in this browser (encrypted with a non-exportable key) and uploaded automatically when the connection returns. Do not close this tab until the recording is finalised.
+                <i class="bi bi-shield-lock"></i> Audio travels over an encrypted WebSocket (TLS) and is encrypted (AES-256-GCM) by the transcription service as it arrives. Speech-to-text: <strong><?= e(RecordingService::processorNotice()) ?></strong>. If the network drops, audio is kept in this browser (encrypted with a non-exportable key) and uploaded automatically when the connection returns. Do not close this tab until the recording is finalised.
             </div>
         </div>
     </div>

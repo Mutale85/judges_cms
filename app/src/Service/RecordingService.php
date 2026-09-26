@@ -28,6 +28,12 @@ final class RecordingService
 {
     public const SAMPLE_RATE = 16000;
 
+    /*
+     * Hearing languages. Which speech engine handles each one is configured in
+     * the transcription service (ASR_PROVIDER / ASR_LANGUAGE_ROUTES). A language
+     * with no engine is still recorded, sealed and reviewable; it is simply not
+     * machine-transcribed. Only claim support after measuring accuracy.
+     */
     public const LANGUAGES = [
         'en' => 'English',
         'bem' => 'Bemba (experimental)',
@@ -35,6 +41,12 @@ final class RecordingService
         'toi' => 'Tonga (experimental)',
         'loz' => 'Lozi (experimental)',
     ];
+
+    /** Human description of where speech-to-text happens, shown to users (e.g. "AssemblyAI (external processor)"). */
+    public static function processorNotice(): string
+    {
+        return (string) Config::get('TRANSCRIPTION_PROCESSOR', 'the court\'s transcription service');
+    }
 
     public function __construct(private readonly App $app)
     {

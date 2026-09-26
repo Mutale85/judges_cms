@@ -3,7 +3,10 @@
  *
  * Audio frames arrive over WSS as [u32 seq][PCM16 mono]. They are appended to
  * an encrypted JCF1 file (per-recording data key, wrapped under the key ring)
- * and, in parallel, cut into windows for live speech-to-text.
+ * and, in parallel, fed to the speech engine for the live draft: either a
+ * real-time stream (AssemblyAI) or fixed windows (local engines). When the
+ * recording is sealed, providers that support it re-transcribe the whole
+ * hearing in one pass to replace the draft.
  *
  * Durability: a frame is acknowledged to the browser only once every byte of
  * it is inside a sealed, fsync'd chunk. Until then the browser keeps it in its
@@ -14,7 +17,11 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { EncryptedFileWriter, digestEncryptedFile, encryptField, wrapKey, unwrapKey } from './crypto.js';
+import { runTranscriptionJob } from './jobs.js';
 import { log } from './log.js';
+import { speakerAt } from './speakers.js';
+
+const LIVE_RETRY_MS = 10000;
 
 export class RecordingSession {
     constructor(ctx, state) {
@@ -43,6 +50,10 @@ export class RecordingSession {
         this.resyncSent = false;
         this.graceTimer = null;
         this.pendingWindows = new Set();
+        this.live = null;
+        this.liveRetryAt = 0;
+        this.noticeSent = false;
+        this.provider = ctx.asr(this.language);
     }
 
     static sidecarPath(ctx, recId) {
@@ -177,10 +188,11 @@ export class RecordingSession {
             this.skipBytes -= skip;
         }
         const copy = Buffer.from(pcm);
+        const startBytes = this.writer.totalBytes;
         const flushed = this.writer.write(copy);
         this.frameEnds.push([seq, this.writer.totalBytes]);
         this.expectedSeq = seq + 1;
-        this.addToWindow(copy);
+        this.transcribeLive(copy, startBytes);
         if (flushed) this.markDurable();
     }
 
@@ -229,12 +241,74 @@ export class RecordingSession {
     }
 
     speakerAt(ms) {
-        let label = null;
-        for (const s of this.speakers) {
-            if (s.at_ms <= ms) label = s.label;
-            else break;
+        return speakerAt(this.speakers, ms);
+    }
+
+    /** Routes captured audio to the live draft, if the language can be transcribed at all. */
+    transcribeLive(pcm, startBytes) {
+        const provider = this.provider;
+        if (provider.supports && !provider.supports(this.language)) {
+            if (!this.noticeSent) {
+                this.noticeSent = true;
+                this.send({ type: 'notice', message: 'Machine transcription is not available for this language. The hearing is still being recorded and sealed; transcribe it manually on the review page.' });
+            }
+            return;
         }
-        return label;
+        if (provider.liveMode === 'stream') {
+            this.streamLive(pcm, startBytes);
+        } else {
+            this.addToWindow(pcm);
+        }
+    }
+
+    /**
+     * Real-time draft. Each (re)opened stream remembers the recording offset
+     * of its first audio so turn timestamps map back onto the original. If the
+     * stream drops, capture carries on and the stream is reopened shortly
+     * after; the full-hearing pass at the end fills any gap.
+     */
+    streamLive(pcm, startBytes) {
+        if (!this.live && !this.liveDisabled && Date.now() >= this.liveRetryAt) {
+            const offsetMs = Math.floor((startBytes / 2 / this.sampleRate) * 1000);
+            const index = Math.min(this.windowIndex++, 49);
+            const stream = this.provider.openLiveStream({
+                sampleRate: this.sampleRate,
+                language: this.language,
+                onTurn: (turn) => this.onLiveTurn(turn, offsetMs, index),
+                onPartial: (text) => this.send({ type: 'partial', text }),
+                onClose: () => {
+                    if (this.live === stream) {
+                        this.live = null;
+                        this.liveRetryAt = Date.now() + LIVE_RETRY_MS;
+                        log.warn('live_stream_closed', { rec: this.recId });
+                    }
+                },
+            });
+            if (!stream) {
+                this.liveDisabled = true; // live draft switched off; the full pass still runs
+                return;
+            }
+            this.live = stream;
+        }
+        if (this.live) this.live.send(pcm);
+    }
+
+    onLiveTurn(turn, offsetMs, index) {
+        const start = offsetMs + Math.round(turn.start);
+        const end = offsetMs + Math.round(turn.end);
+        const segment = {
+            seq: index * 100000 + (turn.turn_order % 100000),
+            start_ms: start,
+            end_ms: Math.max(start, end),
+            speaker: this.speakerAt(Math.floor((start + end) / 2)),
+            text: turn.text,
+            confidence: turn.confidence,
+        };
+        const post = this.ctx.php.post(`/internal/recordings/${this.recId}/segments`, { segments: [segment] })
+            .then(() => this.send({ type: 'segment', segment }))
+            .catch((err) => log.error('live_segment_failed', { rec: this.recId, error: err.message }));
+        this.pendingWindows.add(post);
+        post.finally(() => this.pendingWindows.delete(post));
     }
 
     addToWindow(pcm) {
@@ -255,7 +329,7 @@ export class RecordingSession {
         this.window = [];
         this.windowBytes = 0;
         const job = this.ctx.queue.push(async () => {
-            const raw = await this.ctx.provider.transcribe(pcm, this.sampleRate, this.language);
+            const raw = await this.provider.transcribe(pcm, this.sampleRate, this.language);
             pcm.fill(0);
             const segments = raw.map((s, i) => {
                 const start = startMs + Math.round(s.start * 1000);
@@ -279,6 +353,19 @@ export class RecordingSession {
         return job;
     }
 
+    /** Re-transcribes the sealed hearing in one pass (consistent diarization) to replace the live draft. */
+    scheduleFinalPass() {
+        const provider = this.provider;
+        if (!this.ctx.config.finalPass || !provider.transcribeStream || (provider.supports && !provider.supports(this.language))) return;
+        runTranscriptionJob(this.ctx, {
+            recording_id: this.recId,
+            storage_key: this.storageKey,
+            wrapped_key: this.wrappedKey,
+            sample_rate: this.sampleRate,
+            language: this.language,
+        }).catch((err) => log.error('final_pass_failed', { rec: this.recId, error: err.message }));
+    }
+
     /**
      * Seals the original recording and reports its integrity data to PHP.
      * Sealing happens once; reporting is retried until PHP accepts it.
@@ -289,6 +376,10 @@ export class RecordingSession {
         clearTimeout(this.graceTimer);
         try {
             if (!this.sealed) {
+                if (this.live) {
+                    await this.live.close(); // flush the last turn
+                    this.live = null;
+                }
                 this.cutWindow();
                 this.writer.finish();
                 this.markDurable();
@@ -316,6 +407,7 @@ export class RecordingSession {
             log.info('recording_finalised', { rec: this.recId, bytes: digest.bytes, reason });
             await Promise.allSettled([...this.pendingWindows]);
             this.dek.fill(0);
+            this.scheduleFinalPass();
         } catch (err) {
             this.stopping = false;
             this.send({ type: 'error', message: 'The recording is sealed on the server but could not yet be registered. Retrying automatically.' });

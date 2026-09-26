@@ -24,7 +24,9 @@ export class HttpWhisperProvider {
         form.append('file', new Blob([toWav(pcm, sampleRate)], { type: 'audio/wav' }), 'window.wav');
         form.append('model', this.model);
         form.append('response_format', 'verbose_json');
-        if (language === 'en') form.append('language', 'en');
+        // English as ISO 639-1; Zambian languages as ISO 639-3 (bem, nya, toi, loz),
+        // the codes used by MMS / Zambezi Voice models.
+        form.append('language', language);
         const res = await fetch(this.url, {
             method: 'POST',
             body: form,

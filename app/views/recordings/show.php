@@ -157,6 +157,7 @@ $canEdit = $auth->can('transcripts.edit') && !$certified;
             </div>
         </div>
 
+        <p class="small text-muted"><i class="bi bi-cpu"></i> Machine draft by <?= e(RecordingService::processorNotice()) ?>.</p>
         <div class="d-grid gap-2">
             <a class="btn btn-outline-secondary" href="/recordings/<?= $rid ?>/export" target="_blank" rel="noopener"><i class="bi bi-printer"></i> Printable transcript</a>
             <?php if ($canEdit && $rec['sha256'] !== null): ?>

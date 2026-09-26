@@ -6,8 +6,9 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { decryptField, iterateEncryptedFile, unwrapKey } from './crypto.js';
+import { decryptField, iterateEncryptedFile, plaintextSize, unwrapKey } from './crypto.js';
 import { log } from './log.js';
+import { attributeSpeakers } from './speakers.js';
 
 export const JOB_SEQ_BASE = 5_000_000;
 
@@ -23,15 +24,8 @@ export async function runTranscriptionJob(ctx, job) {
     if (fs.existsSync(speakerFile)) {
         speakers = JSON.parse(decryptField(ctx.ring, fs.readFileSync(speakerFile, 'utf8'), `speakers:${job.storage_key}`).toString('utf8'));
     }
-    const speakerAt = (ms) => {
-        let label = null;
-        for (const s of speakers) {
-            if (s.at_ms <= ms) label = s.label;
-            else break;
-        }
-        return label;
-    };
 
+    const provider = ctx.asr(job.language || 'en');
     const windowBytes = ctx.config.jobWindowSeconds * sampleRate * 2;
     const segments = [];
     let window = [];
@@ -43,11 +37,11 @@ export async function runTranscriptionJob(ctx, job) {
         if (size === 0) return;
         const pcm = Buffer.concat(window);
         const startMs = Math.floor((offset / 2 / sampleRate) * 1000);
-        const raw = await ctx.queue.push(() => ctx.provider.transcribe(pcm, sampleRate, job.language || 'en'));
+        const raw = await ctx.queue.push(() => provider.transcribe(pcm, sampleRate, job.language || 'en'));
         raw.forEach((s, i) => {
             const start = startMs + Math.round(s.start * 1000);
             const end = startMs + Math.round(s.end * 1000);
-            segments.push({ seq: JOB_SEQ_BASE + index * 1000 + i, start_ms: start, end_ms: end, speaker: speakerAt((start + end) / 2), text: s.text, confidence: s.confidence });
+            segments.push({ seq: JOB_SEQ_BASE + index * 1000 + i, start_ms: start, end_ms: end, diarized: s.diarized ?? null, text: s.text, confidence: s.confidence });
         });
         offset += pcm.length;
         pcm.fill(0);
@@ -57,7 +51,23 @@ export async function runTranscriptionJob(ctx, job) {
     };
 
     try {
-        for (const { plain } of iterateEncryptedFile(file, dek)) {
+        if (provider.transcribeStream) {
+            // Whole hearing in one request: diarization stays consistent from start to finish.
+            // Chunks are decrypted lazily while the upload streams; nothing is buffered or written.
+            async function* plainChunks() {
+                for (const { plain } of iterateEncryptedFile(file, dek)) yield plain;
+            }
+            const raw = await ctx.queue.push(() => provider.transcribeStream(plainChunks(), plaintextSize(file), sampleRate, job.language || 'en'));
+            raw.forEach((s, i) => segments.push({
+                seq: JOB_SEQ_BASE + i,
+                start_ms: Math.round(s.start * 1000),
+                end_ms: Math.round(s.end * 1000),
+                diarized: s.diarized ?? null,
+                text: s.text,
+                confidence: s.confidence,
+            }));
+            index = 1;
+        } else for (const { plain } of iterateEncryptedFile(file, dek)) {
             let data = plain;
             while (data.length) {
                 const take = Math.min(windowBytes - size, data.length);
@@ -69,6 +79,9 @@ export async function runTranscriptionJob(ctx, job) {
         }
         await flush();
 
+        const attributed = attributeSpeakers(segments, speakers).map(({ diarized, ...rest }) => rest);
+        segments.length = 0;
+        segments.push(...attributed);
         for (let i = 0; i < Math.max(segments.length, 1); i += 200) {
             await ctx.php.post(`/internal/recordings/${recId}/segments`, { segments: segments.slice(i, i + 200), replace_machine: i === 0 });
         }

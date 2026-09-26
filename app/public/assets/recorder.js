@@ -207,6 +207,23 @@
         }
     }
 
+    /** In-progress words of the current turn (real-time engines only); never stored. */
+    function showPartial(text) {
+        if (!ui.partial) {
+            ui.partial = document.createElement('div');
+            ui.partial.className = 'jc-live-partial text-muted fst-italic';
+            ui.live.parentNode.appendChild(ui.partial);
+        }
+        ui.partial.textContent = text ? text + ' …' : '';
+    }
+
+    function showNotice(message) {
+        if (ui.placeholder) {
+            ui.placeholder.textContent = message;
+            ui.placeholder.classList.add('text-warning-emphasis');
+        }
+    }
+
     // --- Transport -----------------------------------------------------------------
 
     function fetchToken() {
@@ -285,7 +302,14 @@
                 maybeFinish();
                 break;
             case 'segment':
+                showPartial('');
                 appendSegment(msg.segment);
+                break;
+            case 'partial':
+                showPartial(msg.text);
+                break;
+            case 'notice':
+                showNotice(msg.message);
                 break;
             case 'finalized':
                 state.finalized = true;

@@ -19,7 +19,7 @@ import { KeyRing } from './crypto.js';
 import { runTranscriptionJob } from './jobs.js';
 import { log } from './log.js';
 import { PhpClient } from './phpClient.js';
-import { createProvider } from './providers/index.js';
+import { createRouter } from './providers/index.js';
 import { JobQueue } from './queue.js';
 import { RecordingSession } from './session.js';
 
@@ -32,7 +32,7 @@ export function createContext(cfg = config) {
         auth,
         ring: KeyRing.parse(cfg.keyring, cfg.activeKeyId),
         php: new PhpClient(cfg.phpBaseUrl, auth),
-        provider: createProvider(cfg),
+        asr: createRouter(cfg),  // language -> speech engine
         queue: new JobQueue(cfg.asrConcurrency),
         sessions: new Map(),
         opening: new Map(),
@@ -85,7 +85,7 @@ export function createServer(ctx) {
         const url = new URL(req.url, 'http://localhost');
         try {
             if (req.method === 'GET' && url.pathname === '/health') {
-                return json(res, 200, { ok: true, provider: ctx.provider.name, sessions: ctx.sessions.size, queue: ctx.queue.size });
+                return json(res, 200, { ok: true, providers: ctx.asr.all().map((p) => p.name), sessions: ctx.sessions.size, queue: ctx.queue.size });
             }
             if (req.method === 'POST' && url.pathname === '/jobs') {
                 // With TLS_CA set, job submission additionally requires a client certificate (mTLS).
@@ -237,7 +237,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     const server = createServer(ctx);
     await recoverSessions(ctx);
     server.listen(config.port, config.host, () => {
-        log.info('listening', { host: config.host, port: config.port, tls: Boolean(config.tlsCert), provider: ctx.provider.name });
+        log.info('listening', { host: config.host, port: config.port, tls: Boolean(config.tlsCert), providers: ctx.asr.all().map((p) => p.name) });
     });
     for (const signal of ['SIGTERM', 'SIGINT']) {
         process.on(signal, async () => {

@@ -244,3 +244,16 @@ export function digestEncryptedFile(filePath, dek) {
     }
     return { sha256: sha.digest('hex'), chunkChain: chain.toString('hex'), bytes };
 }
+
+/** Plaintext length of a JCF1 file, derived from its size (mirrors FileCrypto::plaintextSize in PHP). */
+export function plaintextSize(filePath) {
+    const fd = fs.openSync(filePath, 'r');
+    try {
+        const { chunkSize } = readHeader(fd);
+        const body = fs.fstatSync(fd).size - HEADER_LEN;
+        const block = chunkSize + TAG_LEN;
+        return Math.floor(body / block) * chunkSize + Math.max((body % block) - TAG_LEN, 0);
+    } finally {
+        fs.closeSync(fd);
+    }
+}

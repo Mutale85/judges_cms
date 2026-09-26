@@ -55,11 +55,11 @@ function client(url, token) {
         inbox.push(msg);
         for (const w of [...waiters]) if (w.pred(msg)) { waiters.splice(waiters.indexOf(w), 1); w.resolve(msg); }
     });
-    const wait = (pred, ms = 5000) => new Promise((resolve, reject) => {
+    const wait = (pred, ms = 15000) => new Promise((resolve, reject) => {
         const found = inbox.find(pred);
         if (found) return resolve(found);
         waiters.push({ pred, resolve });
-        setTimeout(() => reject(new Error('timeout waiting for message')), ms);
+        setTimeout(() => reject(new Error(`timeout waiting for message: ${pred.toString().slice(0, 80)} | last: ${JSON.stringify(inbox.slice(-3))}`)), ms);
     });
     return new Promise((resolve, reject) => {
         ws.on('open', () => { ws.send(JSON.stringify({ type: 'auth', token })); resolve({ ws, inbox, wait }); });

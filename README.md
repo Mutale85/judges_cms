@@ -5,7 +5,7 @@
 Judicial Chambers is a judge-centred platform for digital chambers, hearings and courtroom transcription. It is designed for the Judiciary of Zambia and other African courts.
 
 * **PHP / MySQL application** (`app/`): the judge's workspace. It holds cases, digital bundles, the calendar, staff and permissions, transcript review, certification and the audit trail.
-* **Node.js transcription service** (`transcription/`): secure courtroom audio capture over WSS, encrypted as it arrives, with live and batch speech-to-text using a locally hosted engine.
+* **Node.js transcription service** (`transcription/`): secure courtroom audio capture over WSS, encrypted as it arrives, with live and batch speech-to-text. The engine is AssemblyAI or a local one, chosen per language.
 
 **Security first.** All sensitive data is encrypted at rest with AES-256-GCM:
 
@@ -64,7 +64,7 @@ cp .env.example .env
 #   PHP_INTERNAL_URL=http://127.0.0.1:8080
 #   STORAGE_PATH=<same as the app>
 #   ALLOWED_ORIGINS=http://127.0.0.1:8080
-#   ASR_PROVIDER=mock   (or whisper-cpp once a model is installed)
+#   ASR_PROVIDER=mock   (or assemblyai with ASSEMBLYAI_API_KEY)
 npm start
 ```
 
@@ -80,19 +80,31 @@ Get the token from the recording console's `/recordings/{id}/token` endpoint.
 
 ## Speech recognition
 
-Set `ASR_PROVIDER` in `transcription/.env`:
+Set `ASR_PROVIDER` in `transcription/.env`. You can route individual hearing languages to a different engine with `ASR_LANGUAGE_ROUTES`.
 
-* `whisper-cpp`: [whisper.cpp](https://github.com/ggml-org/whisper.cpp) running on the same host. Recommended; nothing leaves the machine.
-* `http`: a self-hosted, OpenAI-compatible endpoint inside the court network, such as faster-whisper-server or speaches.
-* `mock`: placeholder text for development.
+| Engine | Where audio goes | Notes |
+| --- | --- | --- |
+| `assemblyai` | AssemblyAI cloud (**external processor**) | Real-time draft in the console (Universal-Streaming), plus a full-hearing pass after sealing with speaker diarization. Remote transcripts are deleted after retrieval. Requires `EXTERNAL_ASR_APPROVED=true` in production; see [SECURITY.md §5](docs/SECURITY.md). |
+| `whisper-cpp` | Stays on the host | [whisper.cpp](https://github.com/ggml-org/whisper.cpp) |
+| `http` | Stays in the court network | Any self-hosted OpenAI-compatible endpoint. It receives `language` as `en`, `bem`, `nya`, `toi` or `loz`, so it suits a local-language model. |
+| `mock` | Nowhere | Placeholder text for development |
 
-**Languages.** English is the baseline. Bemba, Nyanja, Tonga and Lozi are marked *experimental* in the UI. Measure real accuracy on court audio before offering any language as supported.
+**Speaker names.** Diarized voices ("Speaker A", "Speaker B") are named from the speaker buttons the court reporter taps during the hearing. Each voice takes the label that covers most of its speaking time. Reviewers confirm or correct the names.
+
+**Languages.** AssemblyAI covers English but not Bemba, Nyanja, Tonga or Lozi. Hearings in those languages are recorded and sealed but not sent to AssemblyAI. Route them to a local-language engine, for example:
+
+```
+ASR_PROVIDER=assemblyai
+ASR_LANGUAGE_ROUTES=bem:http,nya:http,toi:http,loz:http
+```
+
+Measure real accuracy on court audio before offering any language as supported.
 
 ## Tests
 
 ```bash
 cd app && php tests/run.php                # 28 tests: crypto, TOTP, audit chain, access control, recordings…
-cd transcription && npm test               # 11 tests: file format, crash-resume, WSS protocol, PHP⇄Node interop
+cd transcription && npm test               # 18 tests: file format, crash-resume, WSS protocol, PHP⇄Node interop, AssemblyAI (mocked)
 ```
 
 The PHP suite can also run against MySQL/MariaDB. Set `TEST_MYSQL_DSN`, `TEST_MYSQL_USER`, `TEST_MYSQL_PASS` and `TEST_MYSQL_CA`, and point them at a throwaway database.
