@@ -22,9 +22,11 @@ final class FieldCipher
         'documents' => ['title' => 'field', 'original_name' => 'field', 'description' => 'field'],
         'hearings' => ['notes' => 'field', 'outcome' => 'field'],
         'tasks' => ['title' => 'field', 'details' => 'field'],
+        'reminders' => ['title' => 'field', 'details' => 'field'],
         'judicial_notes' => ['title' => 'judicial-notes', 'body' => 'judicial-notes'],
         'transcript_segments' => ['speaker' => 'field', 'text' => 'field', 'machine_text' => 'field'],
         'recording_bookmarks' => ['label' => 'field'],
+        'recordings' => ['original_name' => 'field'],
         'audit_log' => ['details' => 'audit', 'ip_address' => 'audit'],
     ];
 

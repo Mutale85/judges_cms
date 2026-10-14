@@ -25,7 +25,7 @@ final class CaseController extends Controller
     {
         $this->auth()->authorize('cases.view');
         return $this->render('cases/index', [
-            'title' => 'Cases',
+            'title' => term('Cases'),
             'cases' => $this->cases()->listAccessible($request->input('q'), $request->input('status'), $request->input('type')),
             'filters' => ['q' => $request->input('q'), 'status' => $request->input('status'), 'type' => $request->input('type')],
         ]);
@@ -34,7 +34,7 @@ final class CaseController extends Controller
     public function create(Request $request): Response
     {
         $this->auth()->authorize('cases.manage');
-        return $this->render('cases/form', ['title' => 'Register case', 'case' => null]);
+        return $this->render('cases/form', ['title' => 'Register ' . term('case'), 'case' => null]);
     }
 
     public function store(Request $request): Response
@@ -67,6 +67,7 @@ final class CaseController extends Controller
             'recordings' => $this->app->service(RecordingService::class)->forCase($caseId),
             'notes' => $auth->can('notes.private') ? $this->app->service(NoteService::class)->forCase($caseId) : [],
             'tasks' => $this->app->service(TaskService::class)->list($auth->requireChambersId(), null, false, $caseId),
+            'reminders' => $this->app->service(\JC\Service\ReminderService::class)->list(null, null, null, $caseId),
             'members' => $auth->isJudge() || $auth->can('tasks.manage') ? $this->app->service(UserService::class)->members($auth->requireChambersId()) : [],
             'tab' => $request->input('tab', 'overview'),
         ]);

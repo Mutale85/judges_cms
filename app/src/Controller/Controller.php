@@ -25,12 +25,27 @@ abstract class Controller
         return Response::html($this->app->view()->render($template, $data, $layout));
     }
 
+    /**
+     * Redirects after an action. Requests made by the page's JavaScript get
+     * JSON instead: a failure is reported in place (the form keeps its input),
+     * a success is flashed and the script follows the redirect.
+     */
     protected function redirect(string $to, ?string $message = null, string $type = 'success'): Response
     {
+        $ajax = $this->app->request()?->wantsJson() ?? false;
+        if ($ajax && $type === 'danger') {
+            return Response::json(['ok' => false, 'type' => 'error', 'message' => $message ?? 'That did not work.'], 422);
+        }
         if ($message !== null) {
             $this->app->session()->flash($type, $message);
         }
-        return Response::redirect($to);
+        return $ajax ? Response::json(['ok' => true, 'redirect' => $to]) : Response::redirect($to);
+    }
+
+    /** @param array<mixed> $data */
+    protected function json(array $data, int $status = 200): Response
+    {
+        return Response::json($data, $status);
     }
 
     /**

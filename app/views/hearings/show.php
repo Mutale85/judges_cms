@@ -56,6 +56,20 @@ $recordable = in_array($hearing['status'], ['confirmed', 'in_progress', 'complet
                     <p class="small text-muted mt-2 mb-0">Only record proceedings you are authorised to record under the court's rules.</p>
                 </div>
             <?php endif; ?>
+            <?php if ($auth->can('recordings.record')): ?>
+                <div class="card-body border-top">
+                    <details>
+                        <summary class="small fw-semibold">Upload a recording of this sitting instead</summary>
+                        <form method="post" action="/transcription/upload" enctype="multipart/form-data" class="mt-2">
+                            <?= $view->csrfField() ?>
+                            <input type="hidden" name="case_id" value="<?= (int) $case['id'] ?>">
+                            <input type="hidden" name="hearing_id" value="<?= $hid ?>">
+                            <input type="hidden" name="back" value="/hearings/<?= $hid ?>">
+                            <?= $view->partial('recordings/_upload_fields') ?>
+                        </form>
+                    </details>
+                </div>
+            <?php endif; ?>
         </div>
     </div>
 

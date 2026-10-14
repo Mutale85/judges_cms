@@ -29,7 +29,7 @@ final class UserService
         return $this->app->cipher()->decryptRow('users', $this->app->db()->fetch('SELECT * FROM users WHERE email_bidx = ?', [$bidx]));
     }
 
-    public function create(string $email, string $fullName, string $password, bool $isAdmin = false, ?string $phone = null, bool $mustChange = true): int
+    public function create(string $email, string $fullName, string $password, bool $isAdmin = false, ?string $phone = null, bool $mustChange = true, bool $emailVerified = true): int
     {
         $email = trim($email);
         if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
@@ -51,6 +51,7 @@ final class UserService
             'is_admin' => $isAdmin ? 1 : 0,
             'status' => 'active',
             'must_change_password' => $mustChange ? 1 : 0,
+            'email_verified_at' => $emailVerified ? $now : null,
             'mfa_enabled' => 0,
             'failed_logins' => 0,
             'created_at' => $now,

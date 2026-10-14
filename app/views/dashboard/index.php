@@ -13,16 +13,16 @@ $statusBadge = static fn (string $s) => match ($s) {
         <h1 class="h3 mb-0"><?= e($chambers['name']) ?></h1>
     </div>
     <div class="d-flex gap-2">
-        <?php if ($auth->can('cases.manage')): ?><a href="/cases/new" class="btn btn-primary"><i class="bi bi-plus-lg"></i> Register case</a><?php endif; ?>
-        <a href="/calendar/cause-list" class="btn btn-outline-secondary"><i class="bi bi-list-ol"></i> Today's cause list</a>
+        <?php if ($auth->can('cases.manage')): ?><a href="/cases/new" class="btn btn-primary"><i class="bi bi-plus-lg"></i> Register <?= e(term('case')) ?></a><?php endif; ?>
+        <a href="/calendar/cause-list" class="btn btn-outline-secondary"><i class="bi bi-list-ol"></i> Today's <?= e(strtolower(term('Cause list'))) ?></a>
     </div>
 </div>
 
 <div class="row g-3 mb-4">
-    <div class="col-6 col-lg-3"><div class="card jc-stat"><div class="card-body"><div class="jc-stat-value"><?= count($today) ?></div><div class="jc-stat-label">Hearings today</div></div></div></div>
-    <div class="col-6 col-lg-3"><div class="card jc-stat"><div class="card-body"><div class="jc-stat-value"><?= (int) $openCases ?></div><div class="jc-stat-label">Open cases</div></div></div></div>
-    <div class="col-6 col-lg-3"><div class="card jc-stat"><div class="card-body"><div class="jc-stat-value"><?= count($reserved) ?></div><div class="jc-stat-label">Judgments reserved</div></div></div></div>
-    <div class="col-6 col-lg-3"><div class="card jc-stat"><div class="card-body"><div class="jc-stat-value"><?= count($myTasks) ?></div><div class="jc-stat-label">My open tasks</div></div></div></div>
+    <div class="col-6 col-lg-3"><a href="/cases" class="text-decoration-none"><div class="card jc-stat"><div class="card-body"><div class="jc-stat-value"><?= (int) $openCases ?></div><div class="jc-stat-label">Active <?= e(term('Case') === 'Case' ? 'matters' : term('cases')) ?></div></div></div></a></div>
+    <div class="col-6 col-lg-3"><a href="/reminders?show=week" class="text-decoration-none"><div class="card jc-stat"><div class="card-body"><div class="jc-stat-value"><?= count($dueThisWeek) ?></div><div class="jc-stat-label">Due this week</div></div></div></a></div>
+    <div class="col-6 col-lg-3"><div class="card jc-stat"><div class="card-body"><div class="jc-stat-value"><?= count($reserved) ?></div><div class="jc-stat-label"><?= e(term('Judgments')) ?> pending</div></div></div></div>
+    <div class="col-6 col-lg-3"><a href="/calendar" class="text-decoration-none"><div class="card jc-stat"><div class="card-body"><div class="jc-stat-value"><?= count($today) ?></div><div class="jc-stat-label">Hearings today</div></div></div></a></div>
 </div>
 
 <div class="row g-4">
@@ -76,6 +76,22 @@ $statusBadge = static fn (string $s) => match ($s) {
 
     <div class="col-xl-5">
         <div class="card jc-card mb-4">
+            <div class="card-header d-flex justify-content-between"><span><i class="bi bi-bell"></i> Due this week</span><a href="/reminders" class="small">All reminders</a></div>
+            <div class="list-group list-group-flush">
+                <?php if (!$dueThisWeek): ?><div class="list-group-item text-muted">Nothing due in the next seven days.</div><?php endif; ?>
+                <?php foreach (array_slice($dueThisWeek, 0, 8) as $r): ?>
+                    <a class="list-group-item list-group-item-action d-flex justify-content-between gap-2" href="<?= $r['case_id'] ? '/cases/' . (int) $r['case_id'] . '?tab=reminders' : '/reminders' ?>">
+                        <span>
+                            <span class="fw-semibold"><?= e($r['title']) ?></span>
+                            <span class="d-block small <?= $r['overdue'] ? 'text-danger' : 'text-muted' ?>"><?= $r['overdue'] ? 'Overdue · ' : '' ?><?= e(local_time($r['due_at'], 'D j M, H:i')) ?><?= $r['case_number'] ? ' · ' . e($r['case_number']) : '' ?></span>
+                        </span>
+                        <span class="jc-pill jc-prio-<?= e($r['priority']) ?> align-self-start"><?= e(JC\Service\ReminderService::kinds()[$r['kind']] ?? '') ?></span>
+                    </a>
+                <?php endforeach; ?>
+            </div>
+        </div>
+
+        <div class="card jc-card mb-4">
             <div class="card-header d-flex justify-content-between"><span><i class="bi bi-check2-square"></i> My tasks</span><a href="/tasks" class="small">All tasks</a></div>
             <div class="list-group list-group-flush">
                 <?php if (!$myTasks): ?><div class="list-group-item text-muted">No open tasks.</div><?php endif; ?>
@@ -93,7 +109,7 @@ $statusBadge = static fn (string $s) => match ($s) {
 
         <?php if ($reserved): ?>
             <div class="card jc-card mb-4">
-                <div class="card-header"><i class="bi bi-journal-text"></i> Judgments reserved</div>
+                <div class="card-header"><i class="bi bi-journal-text"></i> <?= e(term('Judgments')) ?> reserved</div>
                 <div class="list-group list-group-flush">
                     <?php foreach ($reserved as $c): ?>
                         <a class="list-group-item list-group-item-action" href="/cases/<?= (int) $c['id'] ?>"><?= e($c['case_number']) ?> — <?= e($c['title']) ?></a>
@@ -103,9 +119,9 @@ $statusBadge = static fn (string $s) => match ($s) {
         <?php endif; ?>
 
         <div class="card jc-card">
-            <div class="card-header d-flex justify-content-between"><span><i class="bi bi-folder2-open"></i> Recently updated cases</span><a href="/cases" class="small">All cases</a></div>
+            <div class="card-header d-flex justify-content-between"><span><i class="bi bi-folder2-open"></i> Recently updated <?= e(term('cases')) ?></span><a href="/cases" class="small">All <?= e(term('cases')) ?></a></div>
             <div class="list-group list-group-flush">
-                <?php if (!$recentCases): ?><div class="list-group-item text-muted">No cases yet.</div><?php endif; ?>
+                <?php if (!$recentCases): ?><div class="list-group-item text-muted">No <?= e(term('cases')) ?> yet.<?php if ($auth->can('cases.manage')): ?> <a href="/cases/new">Register the first one</a>.<?php endif; ?></div><?php endif; ?>
                 <?php foreach ($recentCases as $c): ?>
                     <a class="list-group-item list-group-item-action" href="/cases/<?= (int) $c['id'] ?>">
                         <?php if ((int) $c['sealed'] === 1): ?><i class="bi bi-lock-fill text-danger" title="Sealed"></i><?php endif; ?>

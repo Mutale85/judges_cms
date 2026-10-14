@@ -62,7 +62,7 @@ use JC\Service\TaskService;
                         <div class="mb-2">
                             <select class="form-select" name="assigned_to" required>
                                 <?php foreach ($members as $m): if ($m['status'] !== 'active') continue; ?>
-                                    <option value="<?= (int) $m['user_id'] ?>"><?= e($m['full_name']) ?> (<?= e(Permissions::ROLES[$m['role']] ?? '') ?>)</option>
+                                    <option value="<?= (int) $m['user_id'] ?>"><?= e($m['full_name']) ?> (<?= e(Permissions::roleLabel($m['role'])) ?>)</option>
                                 <?php endforeach; ?>
                             </select>
                         </div>

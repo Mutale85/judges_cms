@@ -1,5 +1,5 @@
 <?php use JC\Security\Permissions; ?>
-<h1 class="h3 mb-3">Chambers staff</h1>
+<h1 class="h3 mb-3">Team</h1>
 <div class="row g-4">
     <div class="col-xl-8">
         <div class="card jc-card">
@@ -10,7 +10,7 @@
                     <?php foreach ($members as $m): ?>
                         <tr>
                             <td><div class="fw-semibold"><?= e($m['full_name']) ?></div><div class="small text-muted"><?= e($m['email']) ?></div></td>
-                            <td><?= e(Permissions::ROLES[$m['role']] ?? $m['role']) ?></td>
+                            <td><?= e(Permissions::roleLabel($m['role'])) ?></td>
                             <td class="small"><?= $m['role'] === 'judge' ? 'All' : count($m['permissions']) . ' granted' ?></td>
                             <td><?= (int) $m['mfa_enabled'] === 1 ? '<i class="bi bi-shield-fill-check text-success" title="Enabled"></i>' : '<i class="bi bi-shield-exclamation text-warning" title="Not yet enrolled"></i>' ?></td>
                             <td><span class="badge <?= $m['status'] === 'active' ? 'text-bg-success' : 'text-bg-secondary' ?>"><?= e(label($m['status'])) ?></span></td>
@@ -33,11 +33,11 @@
                     <div class="mb-2"><input class="form-control" name="phone" placeholder="Phone (optional)"></div>
                     <div class="mb-3">
                         <select class="form-select" name="role" required>
-                            <?php foreach (Permissions::ROLES as $k => $v): if ($k === 'judge') continue; ?><option value="<?= e($k) ?>"><?= e($v) ?></option><?php endforeach; ?>
+                            <?php foreach (Permissions::ROLES as $k => $v): if ($k === 'judge') continue; ?><option value="<?= e($k) ?>"><?= e(Permissions::roleLabel($k)) ?></option><?php endforeach; ?>
                         </select>
                         <div class="form-text">Default permissions follow the role; adjust them afterwards. New staff see only cases you assign to them.</div>
                     </div>
-                    <button class="btn btn-primary w-100" type="submit">Add to chambers</button>
+                    <button class="btn btn-primary w-100" type="submit">Add to <?= e(term('chambers')) ?></button>
                 </form>
             </div>
         </div>

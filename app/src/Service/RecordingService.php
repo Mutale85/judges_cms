@@ -42,6 +42,13 @@ final class RecordingService
         'loz' => 'Lozi (experimental)',
     ];
 
+    /** Audio formats accepted for upload (detected from the content, not the file name). */
+    public const UPLOAD_MIME = [
+        'audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav', 'audio/wave', 'audio/vnd.wave', 'audio/mp4', 'audio/x-m4a', 'audio/m4a',
+        'audio/aac', 'audio/x-hx-aac-adts', 'audio/ogg', 'audio/opus', 'audio/webm', 'audio/flac', 'audio/x-flac', 'audio/amr',
+        'video/mp4', 'video/webm', 'video/quicktime', 'application/ogg',
+    ];
+
     /** Human description of where speech-to-text happens, shown to users (e.g. "AssemblyAI (external processor)"). */
     public static function processorNotice(): string
     {
@@ -81,7 +88,7 @@ final class RecordingService
     /** @return array<string,mixed>|null */
     public function find(int $id): ?array
     {
-        return $this->app->db()->fetch('SELECT * FROM recordings WHERE id = ?', [$id]);
+        return $this->app->cipher()->decryptRow('recordings', $this->app->db()->fetch('SELECT * FROM recordings WHERE id = ?', [$id]));
     }
 
     /**
@@ -102,13 +109,13 @@ final class RecordingService
     /** @return list<array<string,mixed>> */
     public function forHearing(int $hearingId): array
     {
-        return $this->app->db()->fetchAll('SELECT * FROM recordings WHERE hearing_id = ? ORDER BY id', [$hearingId]);
+        return $this->app->cipher()->decryptRows('recordings', $this->app->db()->fetchAll('SELECT * FROM recordings WHERE hearing_id = ? ORDER BY id', [$hearingId]));
     }
 
     /** @return list<array<string,mixed>> */
     public function forCase(int $caseId): array
     {
-        return $this->app->db()->fetchAll('SELECT * FROM recordings WHERE case_id = ? ORDER BY id DESC', [$caseId]);
+        return $this->app->cipher()->decryptRows('recordings', $this->app->db()->fetchAll('SELECT * FROM recordings WHERE case_id = ? ORDER BY id DESC', [$caseId]));
     }
 
     /** Capability token the browser presents to the transcription service. */
@@ -265,6 +272,129 @@ final class RecordingService
         ]);
     }
 
+    /**
+     * Stores an uploaded audio file (a dictation, or a recording made on
+     * another device) as a sealed original against a case, encrypted as it is
+     * stored, and queues it for transcription. Without a hearing, a completed
+     * "dictation" sitting is created to hold it.
+     *
+     * @param array<string,mixed> $case
+     * @param array<string,mixed>|null $hearing
+     * @param array<string,mixed> $file an entry from $_FILES
+     * @return array{id:int,queued:bool,error:?string}
+     */
+    public function upload(array $case, ?array $hearing, array $file, string $language, int $userId, string $label = ''): array
+    {
+        $uploaded = PHP_SAPI === 'cli' || is_uploaded_file((string) ($file['tmp_name'] ?? ''));
+        if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK || !$uploaded) {
+            throw new \InvalidArgumentException('Choose an audio file to upload.');
+        }
+        if ((int) $file['size'] > Config::int('MAX_UPLOAD_MB', 100) * 1024 * 1024) {
+            throw new \InvalidArgumentException('The file is larger than the permitted maximum of ' . Config::int('MAX_UPLOAD_MB', 100) . ' MB.');
+        }
+        $mime = (new \finfo(FILEINFO_MIME_TYPE))->file((string) $file['tmp_name']) ?: 'application/octet-stream';
+        if (!in_array($mime, self::UPLOAD_MIME, true)) {
+            throw new \InvalidArgumentException("Files of type {$mime} are not accepted. Upload MP3, M4A, WAV, OGG, WEBM, FLAC or MP4 audio.");
+        }
+        if (!isset(self::LANGUAGES[$language])) {
+            $language = 'en';
+        }
+        if ($hearing !== null && (int) $hearing['case_id'] !== (int) $case['id']) {
+            throw new \InvalidArgumentException('That hearing belongs to another case.');
+        }
+
+        $dir = $this->app->storagePath('recordings');
+        if (!is_dir($dir)) {
+            mkdir($dir, 0700, true);
+        }
+        $storageKey = bin2hex(random_bytes(20));
+        $dek = FileCrypto::newDataKey();
+        $result = FileCrypto::encryptFile((string) $file['tmp_name'], $this->pathFor($storageKey), $dek);
+        @unlink((string) $file['tmp_name']);
+        $wrapped = $this->app->crypto()->wrapKey($dek, 'recordings:' . $storageKey, 'recording-kek');
+
+        $id = $this->app->db()->transaction(function () use ($case, $hearing, $userId, $language, $storageKey, $wrapped, $result, $mime, $file, $label): int {
+            if ($hearing === null) {
+                $local = (new \DateTimeImmutable('now', app_timezone()))->format('Y-m-d\\TH:i');
+                $hearingId = $this->app->service(HearingService::class)->propose($case, [
+                    'scheduled_at' => $local,
+                    'hearing_type' => 'dictation',
+                    'duration_minutes' => 5,
+                    'notes' => $label !== '' ? $label : null,
+                ], $userId, true);
+                $this->app->service(HearingService::class)->setStatus($hearingId, 'completed');
+            } else {
+                $hearingId = (int) $hearing['id'];
+            }
+            $now = now_utc();
+            return $this->app->db()->insert('recordings', $this->app->cipher()->encryptRow('recordings', [
+                'hearing_id' => $hearingId,
+                'case_id' => (int) $case['id'],
+                'chambers_id' => (int) $case['chambers_id'],
+                'started_by' => $userId,
+                'status' => 'completed',
+                'storage_key' => $storageKey,
+                'wrapped_key' => $wrapped,
+                'sha256' => $result['sha256'],
+                'bytes' => $result['bytes'],
+                'sample_rate' => self::SAMPLE_RATE,
+                'language' => $language,
+                'started_at' => $now,
+                'ended_at' => $now,
+                'integrity_verified_at' => $now,
+                'transcript_status' => 'none',
+                'source' => 'upload',
+                'mime_type' => $mime,
+                'original_name' => mb_substr(basename((string) $file['name']), 0, 255),
+                'created_at' => $now,
+            ]));
+        });
+        $this->app->audit()->record('recording.uploaded', $userId, (int) $case['chambers_id'], 'recording', $id, [
+            'sha256' => $result['sha256'],
+            'bytes' => $result['bytes'],
+            'mime' => $mime,
+        ], $this->app->request()?->ip());
+
+        try {
+            $this->requestTranscription($this->find($id) ?? []);
+            return ['id' => $id, 'queued' => true, 'error' => null];
+        } catch (\Throwable $e) {
+            error_log('[judicial-chambers] upload transcription not queued: ' . $e->getMessage());
+            return ['id' => $id, 'queued' => false, 'error' => 'The transcription service could not be reached'];
+        }
+    }
+
+    /**
+     * Recent recordings across the cases the current user can see.
+     *
+     * @return list<array<string,mixed>>
+     */
+    public function recent(int $limit = 100): array
+    {
+        $auth = $this->app->auth();
+        $rows = $this->app->db()->fetchAll(
+            'SELECT r.*, c.case_number, c.title AS case_title, c.sealed, h.hearing_type, h.scheduled_at
+             FROM recordings r JOIN cases c ON c.id = r.case_id JOIN hearings h ON h.id = r.hearing_id
+             WHERE r.chambers_id = ? ORDER BY r.id DESC LIMIT ' . max(1, $limit * 3),
+            [$auth->requireChambersId()]
+        );
+        $crypto = $this->app->crypto();
+        $out = [];
+        foreach ($rows as $row) {
+            if (!$auth->canAccessCase(['id' => $row['case_id'], 'chambers_id' => $row['chambers_id'], 'sealed' => $row['sealed']])) {
+                continue;
+            }
+            $row = $this->app->cipher()->decryptRow('recordings', $row);
+            $row['case_number'] = $crypto->decrypt($row['case_number'], 'cases.case_number');
+            $row['case_title'] = $crypto->decrypt($row['case_title'], 'cases.title');
+            $out[] = $row;
+            if (count($out) >= $limit) {
+                break;
+            }
+        }
+        return $out;
+    }
+
     // --- Transcript review ---------------------------------------------------
 
     /** @return list<array<string,mixed>> */
@@ -399,7 +529,9 @@ final class RecordingService
         $path = $this->pathFor((string) $rec['storage_key']);
         $dek = $this->dataKey($rec);
         $pcmSize = FileCrypto::plaintextSize($path);
-        $header = self::wavHeader($pcmSize, (int) $rec['sample_rate']);
+        // Live captures are raw PCM and get a WAV header; uploads are served in their own format.
+        $isUpload = ($rec['source'] ?? 'live') === 'upload';
+        $header = $isUpload ? '' : self::wavHeader($pcmSize, (int) $rec['sample_rate']);
         $total = strlen($header) + $pcmSize;
 
         $start = 0;
@@ -423,7 +555,7 @@ final class RecordingService
 
         $response = Response::stream(static function () use ($header, $start, $end, $path, $dek): void {
             $headerLen = strlen($header);
-            if ($start < $headerLen) {
+            if ($headerLen > 0 && $start < $headerLen) {
                 echo substr($header, $start, min($end, $headerLen - 1) - $start + 1);
             }
             if ($end >= $headerLen) {
@@ -433,7 +565,7 @@ final class RecordingService
                 }, max(0, $start - $headerLen), $end - $headerLen);
             }
         }, $status);
-        $response->headers['Content-Type'] = 'audio/wav';
+        $response->headers['Content-Type'] = $isUpload ? (string) $rec['mime_type'] : 'audio/wav';
         $response->headers['Accept-Ranges'] = 'bytes';
         $response->headers['Content-Length'] = (string) ($end - $start + 1);
         if ($status === 206) {
@@ -463,6 +595,8 @@ final class RecordingService
             'wrapped_key' => $rec['wrapped_key'],
             'sample_rate' => (int) $rec['sample_rate'],
             'language' => $rec['language'],
+            // "file": an uploaded audio file in its own format; "pcm": a live capture.
+            'format' => ($rec['source'] ?? 'live') === 'upload' ? 'file' : 'pcm',
         ], JSON_THROW_ON_ERROR);
         $headers = ['Content-Type: application/json'];
         foreach ($this->app->serviceAuth()->signRequest('POST', $path, $body) as $k => $v) {

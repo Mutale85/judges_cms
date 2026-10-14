@@ -1,6 +1,8 @@
-# Judicial Chambers
+# Judges.co.zm — Judicial Chambers
 
-**One workspace. Every case. Every hearing.**
+**Every chambers, its own private workspace.**
+
+A subscription service: judges and arbitrators sign up, get a private, encrypted workspace on a free trial, invite their marshals and staff, and pay monthly or annually. A platform admin panel manages registered users, workspaces, payments and plan prices.
 
 Judicial Chambers is a judge-centred platform for digital chambers, hearings and courtroom transcription. It is designed for the Judiciary of Zambia and other African courts.
 
@@ -32,6 +34,16 @@ Every hop is encrypted in transit with TLS 1.2/1.3: browser, WSS, service-to-ser
 | Private notes | Deliberations encrypted under a separate key, visible only to the judge and people the judge grants access to |
 | Tasks | Assign work to chambers staff, per case or in general |
 | Audit | A hash-chained, append-only log of every access and change, with one-click verification |
+| Public site & sign-up | Landing page, pricing (from the admin's plans), legal pages. Self-service "Create workspace" for judges or arbitrators, with e-mail confirmation, authenticator-app enrolment and password reset by e-mail |
+| Reminders & deadlines | Ruling, judgment, filing and status dates with priorities and recurrence (daily/weekly/monthly). A bell in the top bar shows what is overdue or due this week (AJAX), and reminders appear on the calendar |
+| Calendar | Week and month views of hearings and reminders, plus the printable cause list |
+| Transcription | Live recording console, or **upload** a dictation or a recording made elsewhere (MP3, M4A, WAV…); it is encrypted on arrival and transcribed by AssemblyAI. Transcripts export to Word or print |
+| Returns & reports | Registered and concluded matters, clearance rate, judgments pending (by age), docket shape, adjournments, output due. Print or CSV |
+| Arbitration mode | The same workspace in arbitral language: references, claimants and respondents, procedural orders, tribunal stages, awards. Switch any time without changing data |
+| Workspace & billing | The owner sees their plan, trial or paid-up date, submits a mobile-money or bank reference, and edits workspace details. Lapsed workspaces become read-only (never deleted) after a grace period |
+| Admin panel (`/admin`) | Registered users (live search; suspend, reset 2FA, temporary password, confirm e-mail), workspaces (subscription override), payments (confirm/reject), **plans & prices**, platform settings (trial length, grace period, payment instructions, sign-up on/off) |
+
+The UI submits forms over AJAX and uses SweetAlert2 for confirmations, errors and notices (vendored locally; the CSP allows no third-party scripts). Forms keep what was typed when the server rejects them.
 
 ## Quick start (development)
 
@@ -49,8 +61,10 @@ php bin/jc secret:generate    # → SERVICE_HMAC_SECRET=
 #   STORAGE_PATH=/absolute/path/storage
 #   TRANSCRIPTION_PUBLIC_URL=ws://127.0.0.1:8090
 #   TRANSCRIPTION_INTERNAL_URL=http://127.0.0.1:8090
+#   MAIL_DRIVER=log           (sign-up and reset links are then shown on screen)
 php bin/jc migrate
 php bin/jc demo:seed          # demo judge, marshal and court reporter
+php bin/jc admin:create       # a platform administrator for /admin (prints a one-time password)
 php -S 127.0.0.1:8080 -t public bin/dev-router.php
 
 # 2. Transcription service (another terminal)
@@ -68,7 +82,7 @@ cp .env.example .env
 npm start
 ```
 
-Open http://127.0.0.1:8080 and sign in as `judge@demo.local` with the password printed by `demo:seed`. You will be asked to enrol an authenticator app.
+Open http://127.0.0.1:8080 for the public site; *Create workspace* walks through sign-up. Or sign in as `judge@demo.local` with the password printed by `demo:seed`. You will be asked to enrol an authenticator app.
 
 To exercise the recording pipeline without a microphone, run:
 
@@ -103,8 +117,8 @@ Measure real accuracy on court audio before offering any language as supported.
 ## Tests
 
 ```bash
-cd app && php tests/run.php                # 28 tests: crypto, TOTP, audit chain, access control, recordings…
-cd transcription && npm test               # 18 tests: file format, crash-resume, WSS protocol, PHP⇄Node interop, AssemblyAI (mocked)
+cd app && php tests/run.php                # 40 tests: crypto, TOTP, audit chain, access control, recordings, sign-up, billing, reminders, reports, admin…
+cd transcription && npm test               # 19 tests: file format, crash-resume, WSS protocol, PHP⇄Node interop, AssemblyAI (mocked), uploaded files
 ```
 
 The PHP suite can also run against MySQL/MariaDB. Set `TEST_MYSQL_DSN`, `TEST_MYSQL_USER`, `TEST_MYSQL_PASS` and `TEST_MYSQL_CA`, and point them at a throwaway database.

@@ -71,6 +71,20 @@ final class Request
         return is_string($value) ? $value : null;
     }
 
+    /** True for requests made by the page's own JavaScript (fetch/XHR), which expect JSON back. */
+    public function wantsJson(): bool
+    {
+        return strtolower((string) $this->header('X-Requested-With')) === 'xmlhttprequest'
+            || str_contains(strtolower((string) $this->header('Accept')), 'application/json');
+    }
+
+    /** Path plus query string, for "return to this page" links. */
+    public function uri(): string
+    {
+        $query = http_build_query($this->query);
+        return $this->path . ($query !== '' ? '?' . $query : '');
+    }
+
     public function body(): string
     {
         return $this->rawBody ?? (string) file_get_contents('php://input');

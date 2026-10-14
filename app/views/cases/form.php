@@ -1,20 +1,20 @@
 <?php use JC\Service\CaseService; $editing = $case !== null; ?>
 <div class="row justify-content-center">
     <div class="col-lg-8">
-        <h1 class="h3 mb-3"><?= $editing ? 'Edit case' : 'Register a case' ?></h1>
+        <h1 class="h3 mb-3"><?= $editing ? 'Edit ' . e(term('case')) : 'Register a ' . e(term('case')) ?></h1>
         <div class="card jc-card">
             <div class="card-body">
                 <form method="post" action="<?= $editing ? '/cases/' . (int) $case['id'] : '/cases' ?>">
                     <?= $view->csrfField() ?>
                     <div class="row g-3">
                         <div class="col-md-5">
-                            <label class="form-label" for="case_number">Case number</label>
+                            <label class="form-label" for="case_number"><?= e(term('Case number')) ?></label>
                             <input class="form-control" id="case_number" name="case_number" required maxlength="100" value="<?= e($case['case_number'] ?? '') ?>" placeholder="e.g. 2026/HP/0142">
                         </div>
                         <div class="col-md-4">
-                            <label class="form-label" for="case_type">Case type</label>
+                            <label class="form-label" for="case_type">Type</label>
                             <select class="form-select" id="case_type" name="case_type" required>
-                                <?php foreach (CaseService::TYPES as $k => $v): ?>
+                                <?php foreach (CaseService::types() as $k => $v): ?>
                                     <option value="<?= e($k) ?>" <?= ($case['case_type'] ?? '') === $k ? 'selected' : '' ?>><?= e($v) ?></option>
                                 <?php endforeach; ?>
                             </select>
@@ -41,7 +41,7 @@
                         <?php endif; ?>
                     </div>
                     <div class="mt-4 d-flex gap-2">
-                        <button type="submit" class="btn btn-primary"><?= $editing ? 'Save changes' : 'Register case' ?></button>
+                        <button type="submit" class="btn btn-primary"><?= $editing ? 'Save changes' : 'Register ' . e(term('case')) ?></button>
                         <a href="<?= $editing ? '/cases/' . (int) $case['id'] : '/cases' ?>" class="btn btn-outline-secondary">Cancel</a>
                     </div>
                 </form>

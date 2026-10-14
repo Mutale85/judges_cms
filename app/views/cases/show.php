@@ -6,7 +6,7 @@ use JC\Service\HearingService;
 use JC\Service\TaskService;
 
 $caseId = (int) $case['id'];
-$tabs = ['overview' => 'Overview', 'parties' => 'Parties (' . count($parties) . ')', 'documents' => 'Bundle (' . count($documents) . ')', 'hearings' => 'Hearings (' . count($hearings) . ')', 'tasks' => 'Tasks (' . count($tasks) . ')'];
+$tabs = ['overview' => 'Overview', 'parties' => 'Parties (' . count($parties) . ')', 'documents' => 'Bundle (' . count($documents) . ')', 'hearings' => 'Hearings (' . count($hearings) . ')', 'tasks' => 'Tasks (' . count($tasks) . ')', 'reminders' => 'Reminders (' . count(array_filter($reminders, static fn ($r) => $r['status'] === 'open')) . ')'];
 if ($auth->can('notes.private')) {
     $tabs['notes'] = 'Private notes';
 }
@@ -15,7 +15,7 @@ if ($auth->can('staff.manage')) {
 }
 $tab = isset($tabs[$tab]) ? $tab : 'overview';
 ?>
-<nav aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="/cases">Cases</a></li><li class="breadcrumb-item active"><?= e($case['case_number']) ?></li></ol></nav>
+<nav aria-label="breadcrumb"><ol class="breadcrumb"><li class="breadcrumb-item"><a href="/cases"><?= e(term('Cases')) ?></a></li><li class="breadcrumb-item active"><?= e($case['case_number']) ?></li></ol></nav>
 
 <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
     <div>
@@ -24,7 +24,7 @@ $tab = isset($tabs[$tab]) ? $tab : 'overview';
             <?= e($case['case_number']) ?>
         </h1>
         <div class="lead"><?= e($case['title']) ?></div>
-        <div class="text-muted small"><?= e(CaseService::TYPES[$case['case_type']] ?? '') ?> · <?= e(CaseService::STATUSES[$case['status']] ?? '') ?><?= $case['filed_on'] ? ' · Filed ' . e($case['filed_on']) : '' ?></div>
+        <div class="text-muted small"><?= e(CaseService::typeLabel($case['case_type'])) ?> · <?= e(CaseService::statusLabel($case['status'])) ?><?= $case['filed_on'] ? ' · Filed ' . e($case['filed_on']) : '' ?></div>
     </div>
     <div class="d-flex gap-2">
         <?php if ($auth->can('cases.manage')): ?><a class="btn btn-outline-secondary btn-sm" href="/cases/<?= $caseId ?>/edit"><i class="bi bi-pencil"></i> Edit</a><?php endif; ?>
@@ -49,7 +49,10 @@ $tab = isset($tabs[$tab]) ? $tab : 'overview';
                     <div class="card-body"><?= $case['summary'] ? nl2br(e($case['summary'])) : '<span class="text-muted">No summary recorded.</span>' ?></div>
                 </div>
                 <div class="card jc-card mt-4">
-                    <div class="card-header">Recordings &amp; transcripts</div>
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <span>Recordings &amp; transcripts</span>
+                        <?php if ($auth->can('recordings.record')): ?><a class="small" href="/transcription?case_id=<?= $caseId ?>"><i class="bi bi-upload"></i> Upload a recording</a><?php endif; ?>
+                    </div>
                     <div class="list-group list-group-flush">
                         <?php if (!$recordings): ?><div class="list-group-item text-muted">No recordings yet.</div><?php endif; ?>
                         <?php foreach ($recordings as $r): ?>
@@ -69,7 +72,7 @@ $tab = isset($tabs[$tab]) ? $tab : 'overview';
                             <form method="post" action="/cases/<?= $caseId ?>/status" class="d-flex gap-2">
                                 <?= $view->csrfField() ?>
                                 <select class="form-select" name="status">
-                                    <?php foreach (CaseService::STATUSES as $k => $v): ?><option value="<?= e($k) ?>" <?= $case['status'] === $k ? 'selected' : '' ?>><?= e($v) ?></option><?php endforeach; ?>
+                                    <?php foreach (CaseService::statuses() as $k => $v): ?><option value="<?= e($k) ?>" <?= $case['status'] === $k ? 'selected' : '' ?>><?= e($v) ?></option><?php endforeach; ?>
                                 </select>
                                 <button class="btn btn-outline-primary" type="submit">Update</button>
                             </form>
@@ -93,7 +96,7 @@ $tab = isset($tabs[$tab]) ? $tab : 'overview';
                 <div class="card jc-card">
                     <div class="card-header">Staff on this case</div>
                     <ul class="list-group list-group-flush">
-                        <?php foreach ($assignees as $a): ?><li class="list-group-item"><?= e($a['full_name']) ?> <span class="text-muted small"><?= e(Permissions::ROLES[$a['role'] ?? ''] ?? '') ?></span></li><?php endforeach; ?>
+                        <?php foreach ($assignees as $a): ?><li class="list-group-item"><?= e($a['full_name']) ?> <span class="text-muted small"><?= e(Permissions::roleLabel($a['role'] ?? '')) ?></span></li><?php endforeach; ?>
                         <?php if (!$assignees): ?><li class="list-group-item text-muted">No staff assigned.</li><?php endif; ?>
                     </ul>
                 </div>
@@ -111,7 +114,7 @@ $tab = isset($tabs[$tab]) ? $tab : 'overview';
                     <?php if (!$parties): ?><tr><td colspan="5" class="text-muted">No parties recorded.</td></tr><?php endif; ?>
                     <?php foreach ($parties as $p): ?>
                         <tr>
-                            <td><?= e(CaseService::PARTY_ROLES[$p['party_role']] ?? $p['party_role']) ?></td>
+                            <td><?= e(CaseService::partyRoleLabel($p['party_role'])) ?></td>
                             <td class="fw-semibold"><?= e($p['name']) ?></td>
                             <td><?= e($p['representing'] ?? '') ?></td>
                             <td><?= e($p['contact'] ?? '') ?></td>
@@ -136,7 +139,7 @@ $tab = isset($tabs[$tab]) ? $tab : 'overview';
                         <?= $view->csrfField() ?>
                         <div class="col-md-2">
                             <select class="form-select" name="party_role" required>
-                                <?php foreach (CaseService::PARTY_ROLES as $k => $v): ?><option value="<?= e($k) ?>"><?= e($v) ?></option><?php endforeach; ?>
+                                <?php foreach (CaseService::partyRoles() as $k => $v): ?><option value="<?= e($k) ?>"><?= e($v) ?></option><?php endforeach; ?>
                             </select>
                         </div>
                         <div class="col-md-3"><input class="form-control" name="name" placeholder="Full name" required></div>
@@ -265,7 +268,7 @@ $tab = isset($tabs[$tab]) ? $tab : 'overview';
                         <input type="hidden" name="case_id" value="<?= $caseId ?>">
                         <input type="hidden" name="back" value="/cases/<?= $caseId ?>?tab=tasks">
                         <div class="col-md-5"><input class="form-control" name="title" placeholder="e.g. Prepare hearing bundle" required></div>
-                        <div class="col-md-3"><select class="form-select" name="assigned_to" required><?php foreach ($members as $m): if ($m['status'] !== 'active') continue; ?><option value="<?= (int) $m['user_id'] ?>"><?= e($m['full_name']) ?> (<?= e(Permissions::ROLES[$m['role']] ?? '') ?>)</option><?php endforeach; ?></select></div>
+                        <div class="col-md-3"><select class="form-select" name="assigned_to" required><?php foreach ($members as $m): if ($m['status'] !== 'active') continue; ?><option value="<?= (int) $m['user_id'] ?>"><?= e($m['full_name']) ?> (<?= e(Permissions::roleLabel($m['role'])) ?>)</option><?php endforeach; ?></select></div>
                         <div class="col-md-2"><input class="form-control" type="date" name="due_on"></div>
                         <div class="col-md-2 d-grid"><button class="btn btn-primary" type="submit">Assign</button></div>
                         <div class="col-12"><textarea class="form-control" name="details" rows="2" placeholder="Details (optional)"></textarea></div>
@@ -273,6 +276,39 @@ $tab = isset($tabs[$tab]) ? $tab : 'overview';
                 </div>
             </div>
         <?php endif; ?>
+    </div>
+
+    <!-- Reminders -->
+    <div class="tab-pane fade<?= $tab === 'reminders' ? ' show active' : '' ?>" id="tab-reminders" role="tabpanel">
+        <div class="row g-4">
+            <div class="<?= $auth->can('reminders.manage') ? 'col-lg-8' : 'col-12' ?>">
+                <div class="card jc-card">
+                    <div class="list-group list-group-flush">
+                        <?php if (!$reminders): ?><div class="list-group-item text-muted">No reminders for this <?= e(term('case')) ?>.</div><?php endif; ?>
+                        <?php foreach ($reminders as $r): ?>
+                            <div class="list-group-item d-flex justify-content-between gap-2">
+                                <div>
+                                    <div class="fw-semibold<?= $r['status'] === 'done' ? ' text-decoration-line-through text-muted' : '' ?>"><?= e($r['title']) ?></div>
+                                    <div class="small <?= $r['overdue'] ? 'text-danger' : 'text-muted' ?>"><?= $r['overdue'] ? 'Overdue · ' : '' ?><?= e(local_time($r['due_at'])) ?> · <?= e(JC\Service\ReminderService::kinds()[$r['kind']] ?? '') ?><?= $r['recurrence'] !== 'none' ? ' · repeats' : '' ?></div>
+                                    <?php if ($r['details']): ?><div class="small mt-1"><?= nl2br(e($r['details'])) ?></div><?php endif; ?>
+                                </div>
+                                <?php if ($auth->can('reminders.manage') && $r['status'] === 'open'): ?>
+                                    <form method="post" action="/reminders/<?= (int) $r['id'] ?>/complete"><?= $view->csrfField() ?><input type="hidden" name="back" value="/cases/<?= $caseId ?>?tab=reminders"><button class="btn btn-sm btn-outline-success" type="submit"><i class="bi bi-check2"></i> Done</button></form>
+                                <?php endif; ?>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+            </div>
+            <?php if ($auth->can('reminders.manage')): ?>
+                <div class="col-lg-4">
+                    <div class="card jc-card">
+                        <div class="card-header">New reminder</div>
+                        <div class="card-body"><?= $view->partial('reminders/_form', ['reminder' => null, 'cases' => [], 'fixedCase' => $caseId, 'back' => "/cases/{$caseId}?tab=reminders"]) ?></div>
+                    </div>
+                </div>
+            <?php endif; ?>
+        </div>
     </div>
 
     <?php if ($auth->can('notes.private')): ?>
@@ -316,7 +352,7 @@ $tab = isset($tabs[$tab]) ? $tab : 'overview';
             <ul class="list-group list-group-flush">
                 <?php foreach ($assignees as $a): ?>
                     <li class="list-group-item d-flex justify-content-between align-items-center">
-                        <span><?= e($a['full_name']) ?> <span class="text-muted small"><?= e(Permissions::ROLES[$a['role'] ?? ''] ?? '') ?></span></span>
+                        <span><?= e($a['full_name']) ?> <span class="text-muted small"><?= e(Permissions::roleLabel($a['role'] ?? '')) ?></span></span>
                         <form method="post" action="/cases/<?= $caseId ?>/assign/<?= (int) $a['user_id'] ?>/delete"><?= $view->csrfField() ?><button class="btn btn-sm btn-outline-danger" type="submit">Remove</button></form>
                     </li>
                 <?php endforeach; ?>
@@ -327,7 +363,7 @@ $tab = isset($tabs[$tab]) ? $tab : 'overview';
             <?= $view->csrfField() ?>
             <select class="form-select" name="user_id">
                 <?php foreach ($members as $m): if ($m['role'] === 'judge' || $m['status'] !== 'active') continue; ?>
-                    <option value="<?= (int) $m['user_id'] ?>"><?= e($m['full_name']) ?> (<?= e(Permissions::ROLES[$m['role']] ?? '') ?>)</option>
+                    <option value="<?= (int) $m['user_id'] ?>"><?= e($m['full_name']) ?> (<?= e(Permissions::roleLabel($m['role'])) ?>)</option>
                 <?php endforeach; ?>
             </select>
             <button class="btn btn-primary text-nowrap" type="submit">Assign to case</button>

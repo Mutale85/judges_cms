@@ -8,6 +8,7 @@ use JC\Core\Config;
 use JC\Core\Request;
 use JC\Core\Response;
 use JC\Security\Totp;
+use JC\Service\AccountService;
 use JC\Service\UserService;
 
 final class AuthController extends Controller
@@ -15,7 +16,7 @@ final class AuthController extends Controller
     public function showLogin(Request $request): Response
     {
         if ($this->auth()->check()) {
-            return $this->redirect('/');
+            return $this->redirect('/dashboard');
         }
         return $this->render('auth/login', ['title' => 'Sign in'], 'layout/guest');
     }
@@ -30,6 +31,17 @@ final class AuthController extends Controller
         }
         if ($user === null) {
             return $this->redirect('/login', 'The e-mail address or password is incorrect.', 'danger');
+        }
+        if ($user['email_verified_at'] === null) {
+            // Correct password, unconfirmed address: send a fresh link (rate limited) and explain.
+            $this->app->session()->regenerate();
+            $this->app->session()->set('verify_user_id', (int) $user['id']);
+            $accounts = $this->app->service(AccountService::class);
+            $accounts->sendVerification((int) $user['id'], false);
+            if (AccountService::showLinksOnScreen() && $accounts->lastLink !== null) {
+                $this->app->session()->set('dev_link', $accounts->lastLink);
+            }
+            return $this->redirect('/signup/check-email', 'Please confirm your e-mail address before signing in. Check your inbox for the link.', 'warning');
         }
         if ((int) $user['mfa_enabled'] === 1) {
             $this->auth()->beginLogin((int) $user['id'], 'mfa');
@@ -82,7 +94,7 @@ final class AuthController extends Controller
         }
         $user = $this->app->service(UserService::class)->find($userId);
         if ($user === null || (int) $user['mfa_enabled'] === 1) {
-            return $this->redirect('/', 'Two-factor authentication is already enabled. Ask your judge or administrator to reset it if you have lost your device.', 'info');
+            return $this->redirect('/dashboard', 'Two-factor authentication is already enabled. Ask your judge or administrator to reset it if you have lost your device.', 'info');
         }
         $secret = $this->app->session()->get('mfa_setup_secret');
         if (!is_string($secret)) {
@@ -105,7 +117,7 @@ final class AuthController extends Controller
             return $this->redirect('/login');
         }
         if ((int) ($this->app->service(UserService::class)->find($userId)['mfa_enabled'] ?? 1) === 1) {
-            return $this->redirect('/');
+            return $this->redirect('/dashboard');
         }
         $step = Totp::verify($secret, (string) $request->input('code'));
         if ($step === null) {
@@ -115,7 +127,7 @@ final class AuthController extends Controller
         $this->app->session()->forget('mfa_setup_secret');
         $this->app->audit()->record('auth.mfa_enrolled', $userId, null, 'user', $userId, [], $request->ip());
         if ($this->auth()->check()) {
-            return $this->redirect('/', 'Two-factor authentication is now enabled.');
+            return $this->redirect('/dashboard', 'Two-factor authentication is now enabled.');
         }
         return $this->finish($userId);
     }
@@ -152,7 +164,7 @@ final class AuthController extends Controller
             $this->app->service(UserService::class)->changePassword((int) $user['id'], $new);
             $this->app->session()->regenerate();
             $this->app->log('auth.password_changed', 'user', (int) $user['id']);
-            return $this->redirect('/', 'Your password has been changed.');
+            return $this->redirect('/dashboard', 'Your password has been changed.');
         });
     }
 
@@ -161,6 +173,9 @@ final class AuthController extends Controller
         $this->auth()->completeLogin($userId);
         $this->app->service(UserService::class)->recordLogin($userId);
         $this->app->log('auth.login', 'user', $userId);
-        return $this->redirect('/');
+        if ($this->auth()->chambers() === null && $this->auth()->isAdmin()) {
+            return $this->redirect('/admin');
+        }
+        return $this->redirect('/dashboard');
     }
 }

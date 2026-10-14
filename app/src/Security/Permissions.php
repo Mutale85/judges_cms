@@ -34,6 +34,8 @@ final class Permissions
         'orders.draft' => 'Prepare draft orders',
         'notes.private' => 'Access private judicial notes and judgment drafts',
         'tasks.manage' => 'Create and assign chamber tasks',
+        'reminders.manage' => 'Add and complete reminders and deadlines',
+        'reports.view' => 'View returns and reports',
         'audit.view' => 'View the chambers audit trail',
         'transcripts.certify' => 'Certify transcripts as the official record',
         'judgments.approve' => 'Approve and sign judgments',
@@ -44,12 +46,21 @@ final class Permissions
     public const JUDGE_ONLY = ['transcripts.certify', 'judgments.approve', 'staff.manage'];
 
     public const DEFAULTS = [
-        'marshal' => ['cases.view', 'cases.manage', 'documents.upload', 'hearings.propose', 'recordings.record', 'transcripts.edit', 'tasks.manage'],
+        'marshal' => ['cases.view', 'cases.manage', 'documents.upload', 'hearings.propose', 'recordings.record', 'transcripts.edit', 'tasks.manage', 'reminders.manage'],
         'clerk' => ['cases.view', 'documents.upload', 'hearings.propose', 'recordings.record'],
-        'judicial_assistant' => ['cases.view', 'documents.upload', 'orders.draft', 'transcripts.edit'],
+        'judicial_assistant' => ['cases.view', 'documents.upload', 'orders.draft', 'transcripts.edit', 'reminders.manage'],
         'researcher' => ['cases.view'],
         'court_reporter' => ['cases.view', 'recordings.record', 'transcripts.edit'],
     ];
+
+    /** Role name in the workspace's wording ("Arbitrator" rather than "Judge" in arbitration mode). */
+    public static function roleLabel(?string $role): string
+    {
+        if ($role === null || $role === '') {
+            return '';
+        }
+        return term(self::ROLES[$role] ?? label($role));
+    }
 
     /** @return list<string> */
     public static function defaultsFor(string $role): array

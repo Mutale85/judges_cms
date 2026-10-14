@@ -10,6 +10,7 @@ use JC\Core\Response;
 use JC\Service\CaseService;
 use JC\Service\HearingService;
 use JC\Service\RecordingService;
+use JC\Service\ReminderService;
 
 final class HearingController extends Controller
 {
@@ -18,28 +19,40 @@ final class HearingController extends Controller
         return $this->app->service(HearingService::class);
     }
 
-    /** Week calendar plus a printable daily cause list. */
+    /** Week or month calendar of hearings and reminders, plus a printable daily cause list. */
     public function calendar(Request $request): Response
     {
         $this->auth()->authorize('cases.view');
         $tz = app_timezone();
-        $date = \DateTimeImmutable::createFromFormat('!Y-m-d', (string) $request->input('date'), $tz) ?: new \DateTimeImmutable('today', $tz);
-        $weekStart = $date->modify('monday this week');
         $utc = new \DateTimeZone('UTC');
-        $items = $this->hearings()->between(
-            $weekStart->setTimezone($utc)->format('Y-m-d H:i:s'),
-            $weekStart->modify('+7 days')->setTimezone($utc)->format('Y-m-d H:i:s')
-        );
-        $days = [];
-        for ($i = 0; $i < 7; $i++) {
-            $days[$weekStart->modify("+{$i} days")->format('Y-m-d')] = [];
+        $date = \DateTimeImmutable::createFromFormat('!Y-m-d', (string) $request->input('date'), $tz) ?: new \DateTimeImmutable('today', $tz);
+        $month = $request->input('view') === 'month';
+        if ($month) {
+            $first = $date->modify('first day of this month');
+            $start = $first->modify('monday this week');
+            $end = $date->modify('last day of this month')->modify('sunday this week')->modify('+1 day');
+        } else {
+            $start = $date->modify('monday this week');
+            $end = $start->modify('+7 days');
         }
-        foreach ($items as $h) {
-            $days[local_time($h['scheduled_at'], 'Y-m-d')][] = $h;
+        $fromUtc = $start->setTimezone($utc)->format('Y-m-d H:i:s');
+        $toUtc = $end->setTimezone($utc)->format('Y-m-d H:i:s');
+
+        $days = [];
+        for ($d = $start; $d < $end; $d = $d->modify('+1 day')) {
+            $days[$d->format('Y-m-d')] = ['hearings' => [], 'reminders' => []];
+        }
+        foreach ($this->hearings()->between($fromUtc, $toUtc) as $h) {
+            $days[local_time($h['scheduled_at'], 'Y-m-d')]['hearings'][] = $h;
+        }
+        foreach ($this->app->service(ReminderService::class)->list($fromUtc, $toUtc, null) as $r) {
+            $days[local_time($r['due_at'], 'Y-m-d')]['reminders'][] = $r;
         }
         return $this->render('hearings/calendar', [
-            'title' => 'Judicial calendar',
-            'weekStart' => $weekStart,
+            'title' => 'Calendar',
+            'calView' => $month ? 'month' : 'week',
+            'start' => $start,
+            'anchor' => $month ? $date->modify('first day of this month') : $start,
             'days' => $days,
             'selected' => $date->format('Y-m-d'),
         ]);

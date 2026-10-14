@@ -125,6 +125,21 @@ test('batch: upload, diarized transcript, and remote deletion', async () => {
     }
 });
 
+test('batch: uploaded audio files are sent as-is, without a WAV header', async () => {
+    const fake = await fakeAssemblyAI();
+    try {
+        const p = new AssemblyAIProvider(providerConfig(fake));
+        const mp3 = Buffer.concat([Buffer.from('ID3'), crypto.randomBytes(5000)]);
+        async function* chunks() { yield mp3.subarray(0, 2000); yield mp3.subarray(2000); }
+        const segs = await p.transcribeFile(chunks(), mp3.length, 'en');
+        assert.deepEqual(fake.state.uploads[0], mp3, 'original bytes, unchanged');
+        assert.equal(segs.length, 2);
+        assert.deepEqual(fake.state.deleted, ['tr_1']);
+    } finally {
+        fake.server.close();
+    }
+});
+
 test('batch: failures still delete the remote transcript', async () => {
     const fake = await fakeAssemblyAI({ failTranscript: true });
     try {

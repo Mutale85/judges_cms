@@ -8,6 +8,7 @@ use JC\Core\Request;
 use JC\Core\Response;
 use JC\Service\CaseService;
 use JC\Service\HearingService;
+use JC\Service\ReminderService;
 use JC\Service\TaskService;
 
 final class DashboardController extends Controller
@@ -16,6 +17,9 @@ final class DashboardController extends Controller
     {
         $auth = $this->auth();
         if ($auth->chambers() === null) {
+            if ($auth->isAdmin()) {
+                return $this->redirect('/admin');
+            }
             return $this->render('dashboard/no_chambers', ['title' => 'Welcome']);
         }
         $tz = app_timezone();
@@ -38,6 +42,7 @@ final class DashboardController extends Controller
             'reserved' => array_values($reserved),
             'recentCases' => array_slice($cases, 0, 6),
             'myTasks' => $this->app->service(TaskService::class)->list($auth->requireChambersId(), $auth->id(), true),
+            'dueThisWeek' => $this->app->service(ReminderService::class)->dueSoon(7),
         ]);
     }
 
@@ -45,8 +50,8 @@ final class DashboardController extends Controller
     {
         $id = (int) $request->input('chambers_id');
         if (!$this->auth()->switchChambers($id)) {
-            return $this->redirect('/', 'You are not a member of those chambers.', 'danger');
+            return $this->redirect('/dashboard', 'You are not a member of those chambers.', 'danger');
         }
-        return $this->redirect('/');
+        return $this->redirect('/dashboard');
     }
 }

@@ -158,6 +158,12 @@ final class App
             if ($opts['auth'] === 'full' && $this->auth()->mustChangePassword() && $request->path !== '/account/password') {
                 return Response::redirect('/account/password');
             }
+            if (!empty($opts['admin']) && !$this->auth()->isAdmin()) {
+                throw new HttpException(403);
+            }
+            if ($opts['auth'] === 'full' && $request->method !== 'GET' && !$this->writableRequest($request)) {
+                throw new HttpException(402, 'This workspace\'s subscription has lapsed, so it is read-only. You can still view and export everything; the workspace owner can renew it from Billing.');
+            }
         }
 
         [$class, $method] = $route['handler'];
@@ -165,10 +171,28 @@ final class App
         return $controller->{$method}($request);
     }
 
+    /**
+     * A lapsed subscription makes the workspace read-only. Billing, account
+     * and sign-in routes stay usable so the owner can renew.
+     */
+    private function writableRequest(Request $request): bool
+    {
+        foreach (['/billing', '/logout', '/account', '/mfa', '/chambers/switch', '/admin'] as $prefix) {
+            if ($request->path === $prefix || str_starts_with($request->path, $prefix . '/')) {
+                return true;
+            }
+        }
+        $chambers = $this->auth()->chambers();
+        return $chambers === null || $this->service(\JC\Service\SubscriptionService::class)->isWritable($chambers);
+    }
+
     private function errorResponse(Request $request, int $status, string $message): Response
     {
         if (str_starts_with($request->path, '/internal/') || str_starts_with($request->path, '/api/')) {
             return Response::json(['error' => $message], $status);
+        }
+        if ($request->wantsJson()) {
+            return Response::json(['ok' => false, 'type' => 'error', 'status' => $status, 'message' => $message], $status);
         }
         try {
             $layout = $this->auth()->check() ? 'layout/main' : 'layout/guest';

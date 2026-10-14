@@ -18,6 +18,8 @@ final class Database
 {
     private PDO $pdo;
     private string $driver;
+    /** Nesting depth of transaction(): PDO does not report SQLite transactions begun with exec(). */
+    private int $depth = 0;
 
     public function __construct(PDO $pdo)
     {
@@ -154,7 +156,7 @@ final class Database
      */
     public function transaction(callable $fn): mixed
     {
-        if ($this->pdo->inTransaction()) {
+        if ($this->depth > 0 || $this->pdo->inTransaction()) {
             return $fn();
         }
         if ($this->driver === 'sqlite') {
@@ -162,6 +164,7 @@ final class Database
         } else {
             $this->pdo->beginTransaction();
         }
+        $this->depth = 1;
         try {
             $result = $fn();
             if ($this->driver === 'sqlite') {
@@ -177,6 +180,8 @@ final class Database
                 $this->pdo->rollBack();
             }
             throw $e;
+        } finally {
+            $this->depth = 0;
         }
     }
 

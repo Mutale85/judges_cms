@@ -7,6 +7,7 @@ namespace JC\Service;
 use JC\Core\App;
 use JC\Core\Config;
 use JC\Core\HttpException;
+use JC\Core\Terminology;
 use JC\Security\Permissions;
 
 /**
@@ -59,6 +60,7 @@ final class Auth
         if ($current !== null) {
             $session->set('chambers_id', $current['chambers_id']);
             $this->chambers = $this->app->db()->fetch('SELECT * FROM chambers WHERE id = ?', [$current['chambers_id']]);
+            Terminology::setMode($this->chambers['mode'] ?? 'court');
             $this->member = $current;
             $this->caps = $current['role'] === 'judge'
                 ? Permissions::defaultsFor('judge')
@@ -106,6 +108,7 @@ final class Auth
     {
         $this->app->session()->destroy();
         $this->user = $this->chambers = $this->member = null;
+        Terminology::setMode('court');
         $this->caps = [];
     }
 

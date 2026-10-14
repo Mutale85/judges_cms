@@ -6,6 +6,7 @@ namespace JC\Service;
 
 use JC\Core\App;
 use JC\Core\HttpException;
+use JC\Core\Terminology;
 
 final class CaseService
 {
@@ -16,7 +17,27 @@ final class CaseService
         'commercial' => 'Commercial',
         'appellate' => 'Appellate',
         'family' => 'Family',
+        'construction' => 'Construction',
+        'investment' => 'Investment',
+        'employment' => 'Employment',
         'other' => 'Other',
+    ];
+
+    /** Case types offered in each workspace mode (all remain valid stored values). */
+    private const MODE_TYPES = [
+        'court' => ['civil', 'criminal', 'constitutional', 'commercial', 'appellate', 'family', 'other'],
+        'arbitration' => ['commercial', 'construction', 'investment', 'employment', 'other'],
+    ];
+
+    /** Arbitral wording for tribunal stages. */
+    private const ARBITRATION_STATUSES = [
+        'registered' => 'Notice of arbitration',
+        'active' => 'Pleadings',
+        'hearing' => 'Evidentiary hearing',
+        'judgment_reserved' => 'Award reserved',
+        'stayed' => 'Suspended',
+        'concluded' => 'Award rendered',
+        'closed' => 'Closed',
     ];
 
     public const STATUSES = [
@@ -41,7 +62,48 @@ final class CaseService
         'advocate' => 'Advocate',
         'witness' => 'Witness',
         'interested_party' => 'Interested party',
+        'claimant' => 'Claimant',
+        'counsel' => 'Counsel',
+        'expert' => 'Expert',
     ];
+
+    private const MODE_PARTY_ROLES = [
+        'court' => ['plaintiff', 'defendant', 'petitioner', 'applicant', 'respondent', 'appellant', 'accused', 'prosecution', 'advocate', 'witness', 'interested_party'],
+        'arbitration' => ['claimant', 'respondent', 'counsel', 'witness', 'expert', 'interested_party'],
+    ];
+
+    /** @return array<string,string> case types for the current workspace mode */
+    public static function types(): array
+    {
+        return array_intersect_key(self::TYPES, array_flip(self::MODE_TYPES[Terminology::mode()]));
+    }
+
+    /** @return array<string,string> */
+    public static function statuses(): array
+    {
+        return Terminology::isArbitration() ? self::ARBITRATION_STATUSES : self::STATUSES;
+    }
+
+    /** @return array<string,string> */
+    public static function partyRoles(): array
+    {
+        return array_intersect_key(self::PARTY_ROLES, array_flip(self::MODE_PARTY_ROLES[Terminology::mode()]));
+    }
+
+    public static function typeLabel(string $type): string
+    {
+        return self::TYPES[$type] ?? label($type);
+    }
+
+    public static function statusLabel(string $status): string
+    {
+        return self::statuses()[$status] ?? label($status);
+    }
+
+    public static function partyRoleLabel(string $role): string
+    {
+        return self::PARTY_ROLES[$role] ?? label($role);
+    }
 
     public function __construct(private readonly App $app)
     {
@@ -64,6 +126,7 @@ final class CaseService
                 'title' => trim((string) $data['title']),
                 'case_type' => $data['case_type'],
                 'status' => 'registered',
+                'status_changed_at' => $now,
                 'sealed' => !empty($data['sealed']) ? 1 : 0,
                 'summary' => ($data['summary'] ?? '') !== '' ? $data['summary'] : null,
                 'filed_on' => ($data['filed_on'] ?? '') !== '' ? $data['filed_on'] : null,
@@ -97,7 +160,13 @@ final class CaseService
         if (!isset(self::STATUSES[$status])) {
             throw new \InvalidArgumentException('Unknown status.');
         }
-        $this->app->db()->update('cases', ['status' => $status, 'updated_at' => now_utc()], ['id' => $caseId]);
+        $now = now_utc();
+        $this->app->db()->update('cases', [
+            'status' => $status,
+            'status_changed_at' => $now,
+            'concluded_at' => in_array($status, ['concluded', 'closed'], true) ? $now : null,
+            'updated_at' => $now,
+        ], ['id' => $caseId]);
     }
 
     /** @return array<string,mixed>|null */

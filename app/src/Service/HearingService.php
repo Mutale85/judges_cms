@@ -19,6 +19,7 @@ final class HearingService
         'judgment' => 'Delivery of judgment',
         'sentencing' => 'Sentencing',
         'chambers' => 'Chambers appointment',
+        'dictation' => 'Dictation / uploaded recording',
     ];
 
     public const STATUSES = [

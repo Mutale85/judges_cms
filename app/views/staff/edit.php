@@ -11,7 +11,7 @@
                         <div class="col-md-6">
                             <label class="form-label">Role</label>
                             <select class="form-select" name="role">
-                                <?php foreach (Permissions::ROLES as $k => $v): if ($k === 'judge') continue; ?><option value="<?= e($k) ?>" <?= $member['role'] === $k ? 'selected' : '' ?>><?= e($v) ?></option><?php endforeach; ?>
+                                <?php foreach (Permissions::ROLES as $k => $v): if ($k === 'judge') continue; ?><option value="<?= e($k) ?>" <?= $member['role'] === $k ? 'selected' : '' ?>><?= e(Permissions::roleLabel($k)) ?></option><?php endforeach; ?>
                             </select>
                             <div class="form-check mt-1"><input class="form-check-input" type="checkbox" name="reset_defaults" value="1" id="reset_defaults"><label class="form-check-label small" for="reset_defaults">When changing role, reset permissions to the new role's defaults</label></div>
                         </div>

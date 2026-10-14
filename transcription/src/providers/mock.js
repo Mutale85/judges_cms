@@ -5,6 +5,14 @@
 export class MockProvider {
     name = 'mock';
 
+    /** Uploaded audio files cannot be decoded without a codec; return one labelled placeholder. */
+    async transcribeFile(chunks, totalBytes) {
+        let bytes = 0;
+        for await (const chunk of chunks) bytes += chunk.length;
+        if (bytes !== totalBytes) throw new Error('Uploaded file length mismatch.');
+        return [{ start: 0, end: 5, text: `[Mock transcription of an uploaded file — ${totalBytes} bytes. Configure AssemblyAI to transcribe uploads.]`, confidence: 0.5 }];
+    }
+
     async transcribe(pcm, sampleRate) {
         const seconds = pcm.length / 2 / sampleRate;
         if (seconds < 0.5) return [];

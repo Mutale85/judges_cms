@@ -85,10 +85,19 @@ export class AssemblyAIProvider {
         }
     }
 
+    /**
+     * Batch transcription of an uploaded audio file in its own format (MP3,
+     * M4A, WAV…), streamed as it is decrypted. AssemblyAI detects the format.
+     */
+    async transcribeFile(chunks, totalBytes, language = 'en') {
+        return this.transcribeStream(chunks, totalBytes, null, language);
+    }
+
+    /** sampleRate null = the chunks are already a complete audio file; no WAV header is added. */
     async upload(chunks, totalBytes, sampleRate) {
-        const header = wavHeader(totalBytes, sampleRate);
+        const header = sampleRate === null ? null : wavHeader(totalBytes, sampleRate);
         async function* body() {
-            yield header;
+            if (header) yield header;
             for await (const chunk of chunks) yield chunk;
         }
         const res = await fetch(`${this.baseUrl}/v2/upload`, {

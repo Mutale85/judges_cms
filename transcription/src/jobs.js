@@ -51,7 +51,28 @@ export async function runTranscriptionJob(ctx, job) {
     };
 
     try {
-        if (provider.transcribeStream) {
+        if (job.format === 'file') {
+            // An uploaded audio file (MP3, M4A…): only engines that accept whole files can read it.
+            if (!provider.transcribeFile) {
+                throw new Error(`The ${provider.name || 'configured'} engine cannot transcribe uploaded audio files; use AssemblyAI for uploads.`);
+            }
+            if (provider.supports && !provider.supports(job.language || 'en')) {
+                throw new Error(`No speech engine is configured for language '${job.language}'.`);
+            }
+            async function* fileChunks() {
+                for (const { plain } of iterateEncryptedFile(file, dek)) yield plain;
+            }
+            const raw = await ctx.queue.push(() => provider.transcribeFile(fileChunks(), plaintextSize(file), job.language || 'en'));
+            raw.forEach((s, i) => segments.push({
+                seq: JOB_SEQ_BASE + i,
+                start_ms: Math.round(s.start * 1000),
+                end_ms: Math.round(s.end * 1000),
+                diarized: s.diarized ?? null,
+                text: s.text,
+                confidence: s.confidence,
+            }));
+            index = 1;
+        } else if (provider.transcribeStream) {
             // Whole hearing in one request: diarization stays consistent from start to finish.
             // Chunks are decrypted lazily while the upload streams; nothing is buffered or written.
             async function* plainChunks() {

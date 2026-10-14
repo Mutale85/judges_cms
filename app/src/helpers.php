@@ -63,3 +63,26 @@ function label(string $value): string
 {
     return ucfirst(str_replace('_', ' ', $value));
 }
+
+/** Mode-aware wording: term('Case') is "Reference" in an arbitration workspace. */
+function term(string $word): string
+{
+    return JC\Core\Terminology::term($word);
+}
+
+/** Formats a money amount, e.g. "ZMW 1,250.00". */
+function money(int|float|string|null $amount, string $currency = 'ZMW'): string
+{
+    return $currency . ' ' . number_format((float) $amount, 2);
+}
+
+/** Absolute URL for links that leave the site (e-mails). */
+function absolute_url(string $path): string
+{
+    return rtrim((string) JC\Core\Config::get('APP_URL', 'http://127.0.0.1:8080'), '/') . $path;
+}
+
+function app_name(): string
+{
+    return (string) JC\Core\Config::get('APP_NAME', 'Judges.co.zm');
+}

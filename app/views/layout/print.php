@@ -12,7 +12,7 @@
 <div class="container py-4">
     <div class="d-print-none mb-3 d-flex gap-2">
         <button type="button" class="btn btn-primary btn-sm" data-print>Print / save as PDF</button>
-        <a href="/" class="btn btn-outline-secondary btn-sm" data-back>Back</a>
+        <a href="/dashboard" class="btn btn-outline-secondary btn-sm" data-back>Back</a>
     </div>
     <?= $content ?>
 </div>

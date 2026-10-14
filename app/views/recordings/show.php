@@ -123,7 +123,11 @@ $canEdit = $auth->can('transcripts.edit') && !$certified;
                     <dl class="mb-2">
                         <dt>SHA-256 of original audio</dt><dd class="jc-hash"><?= e($rec['sha256']) ?></dd>
                         <?php if ($rec['chunk_chain']): ?><dt>Capture chain hash</dt><dd class="jc-hash"><?= e($rec['chunk_chain']) ?></dd><?php endif; ?>
-                        <dt>Duration</dt><dd><?= e(format_duration_ms($rec['duration_ms'])) ?> (<?= e(format_bytes($rec['bytes'])) ?> PCM, <?= (int) $rec['sample_rate'] ?> Hz)</dd>
+                        <?php if (($rec['source'] ?? 'live') === 'upload'): ?>
+                            <dt>Source</dt><dd>Uploaded file <?= e($rec['original_name'] ?? '') ?> (<?= e(format_bytes($rec['bytes'])) ?>, <?= e($rec['mime_type'] ?? '') ?>)</dd>
+                        <?php else: ?>
+                            <dt>Duration</dt><dd><?= e(format_duration_ms($rec['duration_ms'])) ?> (<?= e(format_bytes($rec['bytes'])) ?> PCM, <?= (int) $rec['sample_rate'] ?> Hz)</dd>
+                        <?php endif; ?>
                         <dt>Last verified</dt><dd><?= e(local_time($rec['integrity_verified_at'])) ?></dd>
                     </dl>
                     <form method="post" action="/recordings/<?= $rid ?>/verify"><?= $view->csrfField() ?><button class="btn btn-sm btn-outline-secondary" type="submit">Re-verify now</button></form>
@@ -160,6 +164,7 @@ $canEdit = $auth->can('transcripts.edit') && !$certified;
         <p class="small text-muted"><i class="bi bi-cpu"></i> Machine draft by <?= e(RecordingService::processorNotice()) ?>.</p>
         <div class="d-grid gap-2">
             <a class="btn btn-outline-secondary" href="/recordings/<?= $rid ?>/export" target="_blank" rel="noopener"><i class="bi bi-printer"></i> Printable transcript</a>
+            <a class="btn btn-outline-secondary" href="/recordings/<?= $rid ?>/export?format=doc"><i class="bi bi-file-earmark-word"></i> Export to Word</a>
             <?php if ($canEdit && $rec['sha256'] !== null): ?>
                 <form method="post" action="/recordings/<?= $rid ?>/retranscribe" data-confirm="Run machine transcription again? Passages you have corrected will be kept."><?= $view->csrfField() ?><button class="btn btn-outline-secondary w-100" type="submit"><i class="bi bi-arrow-repeat"></i> Re-run machine transcription</button></form>
             <?php endif; ?>

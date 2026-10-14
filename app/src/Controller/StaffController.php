@@ -24,7 +24,7 @@ final class StaffController extends Controller
     {
         $this->auth()->authorize('staff.manage');
         return $this->render('staff/index', [
-            'title' => 'Chambers staff',
+            'title' => 'Team',
             'members' => $this->users()->members($this->auth()->requireChambersId()),
         ]);
     }
@@ -37,6 +37,11 @@ final class StaffController extends Controller
             $role = (string) $request->input('role');
             if ($role === 'judge') {
                 throw new \InvalidArgumentException('Judges are appointed by the institution administrator.');
+            }
+            $chambers = $this->auth()->chambers() ?? [];
+            $subs = $this->app->service(\JC\Service\SubscriptionService::class);
+            if (!$subs->canAddStaff($chambers)) {
+                throw new \InvalidArgumentException('Your plan allows ' . $subs->staffLimit($chambers) . ' staff. Suspend someone or upgrade the plan under Billing to add more.');
             }
             $email = (string) $request->input('email');
             $existing = $this->users()->findByEmail($email);
